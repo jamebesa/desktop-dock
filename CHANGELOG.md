@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-20
+
+### Added
+- Auto-hide: `DockConfig.autoHide`, `autoHideDelay` and `autoHidePeekPixels`. The dock slides almost out of sight when the cursor leaves and comes back when the cursor touches the sliver. On the taskbar's edge it slides under the taskbar, and it lets every click through while away. `SetAutoHide`, `HoldAutoHide`/`ReleaseAutoHide`, `RevealAutoHide`, `IsTuckedAway`, `CurrentWindowRect` and the `AutoHideChanged` event. The settings panel and tray menu have an Auto-hide option. The settings panel, resize grip and move handle keep the dock on screen while in use.
+- `DockHotkey`: a system-wide shortcut (default `Ctrl+Alt+D`) that shows, reveals or hides the dock, with an `onPressed` event and `SetShortcut`. Windows only. `DockShortcut.TryParse` parses the key combinations.
+- `DockMoveHandle` (uGUI): press and drag to move the dock to the nearest edge of the monitor under the cursor.
+- Frame pacing: `DockConfig.backgroundRenderInterval` renders only every Nth frame while unfocused and not hovered (scripts still run every frame), and `hiddenFrameRate` (default 10) applies while the dock can't be seen.
+- `IDockPlatform.MoveWindow` and `PlaceBelowTaskbar`.
+- Basic Dock sample: now a small idle game. Critters earn coins over time and while the game is closed (up to 8 hours). Clicking a critter gives a bonus, and coins buy more critters, all saved in PlayerPrefs. It also adds a Move button and the `Ctrl+Alt+D` hotkey.
+- Resizing API: `SetThicknessPixels(pixels, save)`, `ResizeBy(delta, save)`, `Thickness` and `ThicknessLimits`, all clamped to the new `DockConfig.minThicknessPixels` (100) and `maxThicknessPercent` (0.5).
+- `DesktopDockController.Resized`: raised whenever the window's size changes, including on every step of a drag on the resize grip, so content can follow (for example, zoom a map in as the dock gets taller). In the Editor it follows the Game view's size.
+- `DockResizeHandle`: the mouse wheel over the grip resizes the dock (`scrollStep`, 20 px per notch), and keeps working while the grip moves away from the cursor.
+- `DockCameraFitter.fitMode`: **Thickness** (the previous behaviour: a taller dock zooms in), **Length**, or **FixedScale** (a taller dock shows more of the world).
+- Basic Dock sample: Ctrl+wheel over the dock resizes it through `ResizeBy`, and the new size is shown through `Resized`.
+- Basic Dock sample: the edge and Pinned buttons drawn over the game are gone, since the settings panel has them. Move, Buy, Settings and Quit remain, in a 2×2 grid.
+- 44 more EditMode tests (99 in all): auto-hide geometry, nearest edge and monitor, frame pacing, shortcut parsing, thickness limits, wheel steps, camera fit modes, and loading 0.2.0 settings.
+
+### Changed
+- **Breaking:** `DockResizeHandle.minThickness`/`maxFraction` and `DockSettingsPanel.minThickness`/`maxThicknessFraction` are removed. Both now use the dock's `ThicknessLimits`, set with `DockConfig.minThicknessPixels` and `maxThicknessPercent`.
+- `SetThicknessPixels` now clamps to `ThicknessLimits` (it used to allow anything from 16 px).
+
+### Fixed
+- The window jumped to the middle of the screen for a frame or two on every resize step: `Screen.SetResolution` re-centred it, sized as if it had a title bar, before the dock put it back. The dock now makes the window borderless and sizes and places it in one move, and Unity's backbuffer follows. `Screen.SetResolution` is only a fallback if the player doesn't follow within 10 frames. Resizing is also smoother: a drag now reaches the window in about four times as many steps.
+- A click that came right after click-through switched off, before the cursor moved again, could land where the cursor last was over the window. The dock now posts the current cursor position to the game window when click-through switches off.
+
 ## [0.2.0] - 2026-11-20
 
 ### Added

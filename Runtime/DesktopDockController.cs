@@ -52,7 +52,22 @@ namespace DesktopDock
         /// <see cref="DockConfig.fullscreenBehavior"/> isn't Ignore.</summary>
         public static event Action<bool> FullscreenAppChanged;
 
+        /// <summary>Raised when auto-hide starts tucking the dock away (true) or bringing it back (false).</summary>
+        public static event Action<bool> AutoHideChanged;
+
+        /// <summary>
+        /// Raised whenever the dock window's size changes: while the player drags the resize grip (many times, as it
+        /// moves), on <see cref="SetThicknessPixels(int, bool)"/> or <see cref="ResizeBy"/>, when the edge or length
+        /// changes, or when the monitor changes. Use the state's <see cref="DockState.Thickness"/> and
+        /// <see cref="DockState.Length"/> to fit your content, for example to zoom a map in as the dock gets taller.
+        /// In the Editor it's raised when the Game view changes size.
+        /// </summary>
+        public static event Action<DockState> Resized;
+
+        private static Vector2Int s_lastPublishedSize;
+
         private const float FullscreenCheckInterval = 0.5f;
+        private const float AutoHideSlideSeconds = 0.18f;
 
         private IDockPlatform _platform;
         private DockConfig _config;
@@ -74,6 +89,19 @@ namespace DesktopDock
         private bool _windowVisible = true;
         private bool _droppedBehind;
         private bool _unsaved;
+
+        // Auto-hide: 0 = fully shown at _placedRect, 1 = tucked away. _placedArea is the area the dock was placed in.
+        private RectInt _placedArea;
+        private float _hideProgress;
+        private bool _hideTarget;
+        private float _cursorLeftAt = -1f;
+        private float _revealUntil;
+        private readonly HashSet<object> _autoHideHolds = new HashSet<object>();
+
+        // Frame pacing currently applied.
+        private bool _focused = true;
+        private int _appliedFrameRate = int.MinValue;
+        private int _appliedRenderInterval = -1;
 
         private readonly List<IDockHitTestProvider> _hitTestProviders = new List<IDockHitTestProvider>();
         private Camera[] _cameraBuffer = new Camera[8];
@@ -110,6 +138,12 @@ namespace DesktopDock
 
         /// <summary>Whether a fullscreen app currently covers the dock's monitor.</summary>
         public bool IsFullscreenAppActive => _fullscreenActive;
+
+        /// <summary>Whether auto-hide has the dock tucked away (or is sliding it away).</summary>
+        public bool IsTuckedAway => _hideTarget;
+
+        /// <summary>The window's rect right now, including any auto-hide offset. Desktop coordinates.</summary>
+        public RectInt CurrentWindowRect => DockGeometry.AutoHideRect(_placedRect, _config.edge, _config.autoHidePeekPixels, _hideProgress);
 
         /// <summary>The <see cref="DockTransparencyMode.PerPixelAlpha"/> frame pump (null in ColorKey mode). For diagnostics.</summary>
         internal DockAlphaPresenter AlphaPresenter => _alphaPresenter;
@@ -163,6 +197,9 @@ namespace DesktopDock
             CurrentState = null;
             HiddenChanged = null;
             FullscreenAppChanged = null;
+            AutoHideChanged = null;
+            Resized = null;
+            s_lastPublishedSize = default;
         }
 
         // ================================================================ lifecycle
@@ -205,7 +242,14 @@ namespace DesktopDock
 
         private void Update()
         {
-            if (!_initialized) return;
+            if (!_initialized)
+            {
+                // Editor/unsupported platforms: follow the Game view's size so layout code sees Resized too.
+                if (_initAttempted && !_applying && new Vector2Int(Screen.width, Screen.height) != s_lastPublishedSize)
+                    RequestApply();
+                RefreshPacing();
+                return;
+            }
 
             if (Time.unscaledTime >= _nextPoll)
             {
@@ -215,9 +259,93 @@ namespace DesktopDock
             }
 
             UpdateFullscreenApp();
+            UpdateAutoHide();
             GuardPlacement();
             UpdateClickThrough();
+            RefreshPacing();
         }
+
+        // ================================================================ auto-hide
+
+        private void UpdateAutoHide()
+        {
+            if (!_hasPlaced) return;
+            float now = Time.unscaledTime;
+            bool target = false;
+
+            if (_config.autoHide && _windowVisible && !_fullscreenActive && !_applying)
+            {
+                // "Over" means over the part of the dock on screen: the whole dock when shown, the sliver when tucked away.
+                var visible = Intersect(CurrentWindowRect, _placedArea);
+                bool over = _platform.TryGetCursorDesktopPosition(out var cursor) && visible.Contains(cursor);
+                bool held = _autoHideHolds.Count > 0 || now < _revealUntil;
+
+                if (over || held)
+                {
+                    _cursorLeftAt = -1f;
+                }
+                else if (_hideTarget)
+                {
+                    target = true; // stay tucked away until the cursor touches the sliver
+                }
+                else if (!_platform.IsAnyMouseButtonDown()) // never slide away in the middle of a drag
+                {
+                    if (_cursorLeftAt < 0f) _cursorLeftAt = now;
+                    target = now - _cursorLeftAt >= _config.autoHideDelay;
+                }
+            }
+            else
+            {
+                _cursorLeftAt = -1f;
+            }
+
+            if (target != _hideTarget)
+            {
+                _hideTarget = target;
+                AutoHideChanged?.Invoke(target);
+            }
+
+            float goal = _hideTarget ? 1f : 0f;
+            if (Mathf.Approximately(_hideProgress, goal)) return;
+
+            bool wasShown = _hideProgress <= 0f;
+            _hideProgress = Mathf.MoveTowards(_hideProgress, goal, Time.unscaledDeltaTime / AutoHideSlideSeconds);
+            if (wasShown && _hideProgress > 0f && !_droppedBehind)
+                _platform.PlaceBelowTaskbar(); // slide under the taskbar, not over it
+            _platform.MoveWindow(CurrentWindowRect.position);
+            if (_hideProgress <= 0f)
+                PlaceWindow(_placedRect, _droppedBehind); // fully back: normal z-order again
+        }
+
+        private static RectInt Intersect(RectInt a, RectInt b)
+        {
+            int x0 = Mathf.Max(a.xMin, b.xMin), y0 = Mathf.Max(a.yMin, b.yMin);
+            int x1 = Mathf.Min(a.xMax, b.xMax), y1 = Mathf.Min(a.yMax, b.yMax);
+            return x1 > x0 && y1 > y0 ? new RectInt(x0, y0, x1 - x0, y1 - y0) : new RectInt(x0, y0, 0, 0);
+        }
+
+        /// <summary>
+        /// Keep auto-hide from tucking the dock away while <paramref name="owner"/> needs it, for example while a menu or
+        /// a drag is in progress. Call <see cref="ReleaseAutoHide"/> with the same owner when done.
+        /// </summary>
+        public void HoldAutoHide(object owner)
+        {
+            if (owner != null) _autoHideHolds.Add(owner);
+        }
+
+        public void ReleaseAutoHide(object owner)
+        {
+            if (owner != null) _autoHideHolds.Remove(owner);
+        }
+
+        /// <summary>Bring a tucked-away dock back for <paramref name="seconds"/> (it tucks away again once the cursor is elsewhere).</summary>
+        public void RevealAutoHide(float seconds = 3f)
+        {
+            _revealUntil = Time.unscaledTime + Mathf.Max(0f, seconds);
+            _cursorLeftAt = -1f;
+        }
+
+        public void SetAutoHide(bool value) => Modify(c => c.autoHide = value);
 
         private void UpdateFullscreenApp()
         {
@@ -246,13 +374,14 @@ namespace DesktopDock
                 _windowVisible = visible;
                 _platform.SetVisible(visible);
             }
-            PlaceWindow(_placedRect, dropBehind);
+            PlaceWindow(CurrentWindowRect, dropBehind);
         }
 
         private void PlaceWindow(RectInt rect, bool dropBehind)
         {
             _platform.SetWindowRect(rect, _config.alwaysOnTop);
             if (dropBehind) _platform.SendToBack();
+            else if (_hideProgress > 0f) _platform.PlaceBelowTaskbar();
             _droppedBehind = dropBehind;
         }
 
@@ -267,11 +396,12 @@ namespace DesktopDock
             if (now >= _guardUntil && now < _nextGuardCheck) return;
             _nextGuardCheck = now + 1f;
 
-            if (!_platform.TryGetWindowRect(out var actual) || actual.Equals(_placedRect)) return;
+            var expected = CurrentWindowRect;
+            if (!_platform.TryGetWindowRect(out var actual) || actual.Equals(expected)) return;
 
             _platform.ApplyWindowStyle(StyleConfig(_config));
             IsClickThrough = false;
-            PlaceWindow(_placedRect, _droppedBehind);
+            PlaceWindow(expected, _droppedBehind);
             if (++_placementCorrections == 20)
                 Debug.LogWarning("[DesktopDock] Something keeps moving or resizing the dock window; it is being put back each time.");
         }
@@ -300,11 +430,58 @@ namespace DesktopDock
         /// <param name="monitorIndex">-1 for the primary monitor, otherwise an index into <see cref="Monitors"/>.</param>
         public void SetMonitor(int monitorIndex) => Modify(c => c.monitorIndex = monitorIndex);
 
-        public void SetThicknessPixels(int pixels) => Modify(c =>
+        /// <summary>Set the thickness in pixels, clamped to <see cref="ThicknessLimits"/>, and save it.</summary>
+        public void SetThicknessPixels(int pixels) => SetThicknessPixels(pixels, true);
+
+        /// <summary>
+        /// Set the thickness (height for top/bottom docks, width for left/right) in pixels, clamped to
+        /// <see cref="ThicknessLimits"/>. Pass <paramref name="save"/> false for changes many times a second, such as a
+        /// drag or the scroll wheel, then call <see cref="SaveSettings"/> once at the end. <see cref="Resized"/> is raised
+        /// once the window has its new size.
+        /// </summary>
+        public void SetThicknessPixels(int pixels, bool save)
         {
-            c.thicknessUnit = DockSizeUnit.Pixels;
-            c.thicknessPixels = Mathf.Max(16, pixels);
-        });
+            var limits = ThicknessLimits;
+            int clamped = Mathf.Clamp(pixels, limits.x, limits.y);
+            if (_config.thicknessUnit == DockSizeUnit.Pixels && _config.thicknessPixels == clamped)
+            {
+                if (save && _unsaved) SaveConfig();
+                return;
+            }
+            Modify(c =>
+            {
+                c.thicknessUnit = DockSizeUnit.Pixels;
+                c.thicknessPixels = clamped;
+            }, save);
+        }
+
+        /// <summary>
+        /// Make the dock thicker (positive <paramref name="deltaPixels"/>) or thinner, within <see cref="ThicknessLimits"/>.
+        /// Steps add up even before the window catches up, so it suits the scroll wheel or keyboard shortcuts.
+        /// </summary>
+        public void ResizeBy(int deltaPixels, bool save = true) => SetThicknessPixels(RequestedThickness + deltaPixels, save);
+
+        /// <summary>The dock's thickness right now, in pixels: height for top/bottom docks, width for left/right.</summary>
+        public int Thickness => CurrentState?.Thickness ?? 0;
+
+        /// <summary>
+        /// The smallest and largest thickness (x and y, in pixels) that resizing can set on the dock's monitor, from
+        /// <see cref="DockConfig.minThicknessPixels"/> and <see cref="DockConfig.maxThicknessPercent"/>.
+        /// </summary>
+        public Vector2Int ThicknessLimits
+        {
+            get
+            {
+                var bounds = _hasPlaced ? _placedMonitor.bounds
+                    : new RectInt(0, 0, Screen.currentResolution.width, Screen.currentResolution.height);
+                int across = _config.Orientation == DockOrientation.Horizontal ? bounds.height : bounds.width;
+                return DockGeometry.ThicknessLimits(_config, across);
+            }
+        }
+
+        // The thickness most recently asked for, which the window may not have reached yet.
+        private int RequestedThickness =>
+            _config.thicknessUnit == DockSizeUnit.Pixels || Thickness <= 0 ? _config.thicknessPixels : Thickness;
 
         public void SetThicknessPercent(float fraction) => Modify(c =>
         {
@@ -428,23 +605,39 @@ namespace DesktopDock
                 int monitorIndex = ResolveMonitor(monitors, cfg.monitorIndex);
                 var monitor = monitors.Count > 0 ? monitors[monitorIndex] : default;
 
-                // A hidden dock doesn't hold on to reserved screen space.
+                // A hidden dock doesn't hold on to reserved screen space, and an auto-hiding one never reserves it.
                 var placeCfg = cfg;
-                if (_userHidden && cfg.reserveScreenSpace)
+                if ((_userHidden || cfg.autoHide) && cfg.reserveScreenSpace)
                 {
                     placeCfg = cfg.Clone();
                     placeCfg.reserveScreenSpace = false;
                 }
                 RectInt rect = _platform.PlaceDock(placeCfg, monitor);
+                _placedArea = placeCfg.respectTaskbar ? monitor.workArea : monitor.bounds;
 
                 if (Screen.width != rect.width || Screen.height != rect.height)
                 {
-                    // Resize Unity's backbuffer to match. The player applies this a few frames later and sizes
-                    // the window as if it still had a title bar, so wait for it to land before styling/placing.
-                    Screen.SetResolution(rect.width, rect.height, FullScreenMode.Windowed);
-                    for (int i = 0; i < 60 && (Screen.width != rect.width || Screen.height != rect.height); i++)
+                    // Make the window borderless, then size and place it in one move: Unity follows the window and
+                    // resizes its backbuffer to match. (Screen.SetResolution would instead re-centre the window, sized as
+                    // if it still had a title bar, until it was put back: a visible jump on every resize step.)
+                    _platform.ApplyWindowStyle(StyleConfig(cfg));
+                    IsClickThrough = false;
+                    _placedRect = rect;
+                    _placedMonitor = monitor;
+                    _hasPlaced = true;
+                    PlaceWindow(CurrentWindowRect, _droppedBehind);
+                    for (int i = 0; i < 10 && (Screen.width != rect.width || Screen.height != rect.height); i++)
                         yield return null;
-                    yield return null;
+
+                    if (Screen.width != rect.width || Screen.height != rect.height)
+                    {
+                        // The player didn't follow the window (for example a non-resizable window): resize the
+                        // backbuffer the old way and wait for it to land before restyling and placing again.
+                        Screen.SetResolution(rect.width, rect.height, FullScreenMode.Windowed);
+                        for (int i = 0; i < 60 && (Screen.width != rect.width || Screen.height != rect.height); i++)
+                            yield return null;
+                        yield return null;
+                    }
                 }
 
                 _platform.ApplyWindowStyle(StyleConfig(cfg));
@@ -485,6 +678,9 @@ namespace DesktopDock
         {
             CurrentState = state;
             Docked?.Invoke(state);
+            if (state.WindowRect.size == s_lastPublishedSize) return;
+            s_lastPublishedSize = state.WindowRect.size;
+            Resized?.Invoke(state);
         }
 
         // ================================================================ click-through
@@ -499,6 +695,14 @@ namespace DesktopDock
             }
 
             if (!_platform.TryGetCursorPosition(out _cursor, out _cursorInside)) return;
+
+            // Tucked away (or on its way): nothing on screen should catch clicks meant for the window underneath.
+            if (_hideTarget)
+            {
+                IsPointerOverContent = false;
+                if (!_platform.IsAnyMouseButtonDown()) SetClickThrough(true);
+                return;
+            }
 
             bool hit = _cursorInside && HitTest(_cursor);
             IsPointerOverContent = hit;
@@ -586,6 +790,8 @@ namespace DesktopDock
             while (true)
             {
                 yield return endOfFrame;
+                // With a render interval above 1, skipped frames leave nothing new to read or show.
+                if (!UnityEngine.Rendering.OnDemandRendering.willCurrentFrameRender) continue;
 
                 bool wanted = _config.transparentBackground
                               && _config.clickThroughTransparentAreas
@@ -658,10 +864,27 @@ namespace DesktopDock
 
         private void ApplyFrameRate(bool focused)
         {
+            _focused = focused;
+            RefreshPacing();
+        }
+
+        /// <summary>Set the frame rate and render interval for the current focus, hover and visibility (see <see cref="DockPacing"/>).</summary>
+        private void RefreshPacing()
+        {
             if (_config == null) return;
-            int rate = focused ? _config.focusedFrameRate : _config.backgroundFrameRate;
-            if (rate > 0) QualitySettings.vSyncCount = 0; // targetFrameRate is ignored while vSync is on
-            Application.targetFrameRate = rate;
+            bool unseen = _initialized && _hasPlaced && (!_windowVisible || _droppedBehind || _hideProgress >= 1f);
+            var (rate, interval) = DockPacing.Choose(_config, _focused, _cursorInside, unseen);
+            if (rate != _appliedFrameRate)
+            {
+                _appliedFrameRate = rate;
+                if (rate > 0) QualitySettings.vSyncCount = 0; // targetFrameRate is ignored while vSync is on
+                Application.targetFrameRate = rate;
+            }
+            if (interval != _appliedRenderInterval)
+            {
+                _appliedRenderInterval = interval;
+                UnityEngine.Rendering.OnDemandRendering.renderFrameInterval = interval;
+            }
         }
     }
 }

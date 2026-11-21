@@ -10,14 +10,17 @@ Turns a Unity standalone player into a borderless, transparent strip docked to a
 - **Always on top**, optional **taskbar button**, and **stays clear of the taskbar**.
 - **Steps aside for fullscreen apps**: when a game or fullscreen video takes over the dock's monitor, the dock drops behind it (or hides), then comes back.
 - **Reserve screen space** (optional): registers as a Windows app bar, so maximized windows stop at the dock the way they stop at the taskbar.
-- **Tray icon** (optional): show/hide the dock, change edge, pin, start with Windows, your own items, and Quit.
-- **Drag to resize**: a grip on the dock's inner edge.
+- **Auto-hide** (optional): the dock slides almost out of sight when the cursor leaves, like an auto-hiding taskbar, and comes back when the cursor touches the sliver left at the screen edge.
+- **Global hotkey**: a shortcut such as Ctrl+Alt+D shows or hides the dock from any app.
+- **Tray icon** (optional): show/hide the dock, change edge, pin, auto-hide, start with Windows, your own items, and Quit.
+- **Resizable**: a grip on the dock's inner edge to drag or scroll, an API to resize from your own input, and a `Resized` event as the size changes, so your content can follow (zoom in as the dock gets taller, for example).
+- **Drag to another edge**: press a Move handle and drag; the dock jumps to the nearest edge of whichever monitor the cursor is on.
 - **Settings panel**: a ready-made in-game panel for every dock setting, laid out for horizontal and vertical docks.
 - **Start with Windows** (opt-in), through the standard per-user startup list.
 - **Follows display changes**: re-docks when a resolution, monitor or taskbar changes.
 - **Layout helpers**: swap between horizontal and vertical layouts, fit an orthographic camera to the dock (with a pixel-perfect option), and set up a transparent camera.
 - **Remembers** changes the player makes (edge, size, monitor) in PlayerPrefs.
-- **Lower frame rate when unfocused** (configurable).
+- **Low idle cost**: a lower frame rate when unfocused, an optional render interval (scripts keep running, frames are drawn less often), and a very low frame rate while the dock can't be seen.
 
 **Platform:** Windows standalone (Mono or IL2CPP, x64/x86). **macOS standalone is experimental and has never been run**: the code was written without a Mac and needs a native plugin you build yourself (see [macOS](#macos-experimental-untested)). The Editor and other platforms only simulate docking: layout code still gets the configured edge, but no window is touched. The platform layer is behind `IDockPlatform`.
 
@@ -28,8 +31,10 @@ Tested with:
 - In Unity 6, with the legacy Input Manager and with Input System only.
 - **URP 17.3** (Unity 6000.3) with the Universal and 2D renderers, post-processing on and off, and ACES tonemapping. Transparency and click-through were checked on screen.
 - Reserve screen space, hiding, the tray icon and menu, stepping aside for a fullscreen window, drag-to-resize, the settings panel in both orientations, and start with Windows were checked in a Unity 6000.3 build.
+- Auto-hide (tucking away, coming back from the sliver, sliding under the taskbar), the global hotkey, dragging to another edge and back, the frame pacing, and the Basic Dock sample's idle game (buying, offline earnings) were checked in a Unity 6000.3 build.
 - PerPixelAlpha (Unity 6000.3, built-in pipeline): Direct3D11 without flip model and Direct3D12, Gamma and Linear color space. Blending was measured on screen against white and black backgrounds, along with click-through, switching modes at runtime, edge changes, hiding, and pinning.
-- 55 EditMode tests (see [Tests](#tests)).
+- Resizing with the grip (drag and wheel) and with `ResizeBy` from game code, the `Resized` event while dragging, and clamping to the thickness limits were checked in a Unity 6000.3 build.
+- 99 EditMode tests (see [Tests](#tests)).
 
 Not tested yet: IL2CPP builds (the code avoids anything IL2CPP lacks), more than one monitor, display scaling other than 100%, PerPixelAlpha with Vulkan, with Direct3D11 plus the flip-model swapchain, and with URP.
 
@@ -39,10 +44,10 @@ Not tested yet: IL2CPP builds (the code avoids anything IL2CPP lacks), more than
 
 Pick one:
 
-- **Git (recommended):** Package Manager → **+** → *Add package from git URL…*, then enter the URL below. The `#v0.2.0` pins a release; leave it off to follow the latest version.
+- **Git (recommended):** Package Manager → **+** → *Add package from git URL…*, then enter the URL below. The `#v0.3.0` pins a release; leave it off to follow the latest version.
 
   ```
-  https://github.com/jamebesa/desktop-dock.git#v0.2.0
+  https://github.com/jamebesa/desktop-dock.git#v0.3.0
   ```
 - **Local folder:** download or clone the package, then Package Manager → **+** → *Add package from disk…* → select its `package.json`.
 - **Embedded:** copy the package folder into your project's `Packages/` folder.
@@ -70,7 +75,7 @@ URP works with both the Universal and 2D renderers, and post-processing can stay
 
 HDR and post-processing make URP discard the alpha channel. In ColorKey mode that doesn't matter, because neither the window's transparency nor the click-through test uses alpha. PerPixelAlpha needs the alpha channel; see [Transparency modes](#transparency-modes).
 
-For a ready-made scene, import the **Basic Dock** sample from the Package Manager. Put `DockDemo` on an empty GameObject in an empty scene and build. You get edge-switch buttons, a pin toggle, a **Quit** button, clickable critters, the settings panel, a resize grip and a tray icon.
+For a ready-made scene, import the **Basic Dock** sample from the Package Manager. Put `DockDemo` on an empty GameObject in an empty scene and build. You get a tiny idle game with clickable critters, plus **Move**, **Buy**, **Settings** and **Quit** buttons, the settings panel (edge, size, always on top, auto-hide and more), a resize grip, a tray icon and a hotkey.
 
 > A docked window has no title bar or close button, so **give players a way to quit** (and to change settings) inside the game.
 
@@ -112,7 +117,7 @@ using DesktopDock;
 
 var dock = DesktopDockController.Instance;
 dock.SetEdge(DockEdge.Left);
-dock.SetThicknessPixels(260);           // or SetThicknessPercent(0.18f)
+dock.SetThicknessPixels(260);           // or SetThicknessPercent(0.18f); clamped to dock.ThicknessLimits
 dock.SetLength(0.6f, DockAlignment.End);
 dock.SetMonitor(1);                     // -1 = primary; see dock.Monitors
 dock.SetAlwaysOnTop(false);
@@ -121,6 +126,10 @@ dock.Modify(c => { c.edge = DockEdge.Top; c.showInTaskbar = false; }); // severa
 dock.Modify(c => c.thicknessPixels = 300, save: false); // for sliders and drags...
 dock.SaveSettings();                    // ...then save once at the end (unsaved changes are also saved on quit)
 dock.SetHidden(true);                   // hide completely; give players a way back, such as the tray icon
+dock.SetAutoHide(true);                 // slide away when the cursor leaves; see autoHideDelay, autoHidePeekPixels
+dock.HoldAutoHide(this);                // keep it on screen while your menu is open...
+dock.ReleaseAutoHide(this);             // ...and let it tuck away again afterwards
+dock.RevealAutoHide(3f);                // bring a tucked-away dock back for a few seconds
 dock.ResetToDefaults();                 // also clears what was saved in PlayerPrefs
 
 DesktopDockController.Docked += state =>
@@ -132,12 +141,63 @@ var current = DesktopDockController.CurrentState; // for late subscribers
 
 DesktopDockController.HiddenChanged += hidden => { /* pause music? */ };
 DesktopDockController.FullscreenAppChanged += active => { /* a fullscreen app covers the dock's monitor */ };
+DesktopDockController.AutoHideChanged += tucked => { /* sliding away (true) or coming back (false) */ };
 
 if (DockStartup.IsSupported)            // Windows builds, and macOS 13+ builds
     DockStartup.SetEnabled(true);       // opt-in: ask the player first. Also: DockStartup.IsEnabled
 ```
 
 What the dock does while another app is fullscreen on its monitor is `DockConfig.fullscreenBehavior`: **DropBehind** (default) moves it behind the fullscreen app until that app closes or loses focus, **Hide** hides it, and **Ignore** leaves a pinned dock on top.
+
+### Resizing
+
+The dock's *thickness* is its height for top and bottom docks and its width for left and right docks. Players can change it with the resize grip, by dragging it or turning the mouse wheel over it, or with the settings panel's Size slider. Your code can change it too:
+
+```csharp
+var dock = DesktopDockController.Instance;
+dock.SetThicknessPixels(300, save: false);  // set it (save: false for changes many times a second)
+dock.ResizeBy(+20, save: false);            // grow or shrink by a step; steps add up even before the window catches up
+dock.SaveSettings();                        // save once the player is done
+int now = dock.Thickness;                   // current thickness in pixels
+Vector2Int limits = dock.ThicknessLimits;   // x = smallest, y = largest allowed on this monitor
+
+// Raised whenever the window's size changes: on every step of a drag, on each ResizeBy, on edge or monitor changes.
+DesktopDockController.Resized += state =>
+{
+    float t = Mathf.InverseLerp(limits.x, limits.y, state.Thickness);
+    mapCamera.orthographicSize = Mathf.Lerp(6f, 3f, t); // zoom in as the dock gets taller
+};
+```
+
+For example, resize while a key is held and the wheel turns, from your own input code (the Basic Dock sample does exactly this with Ctrl):
+
+```csharp
+if (Input.GetKey(KeyCode.LeftControl) && Input.mouseScrollDelta.y != 0)
+    dock.ResizeBy(Input.mouseScrollDelta.y > 0 ? 20 : -20, save: false);
+```
+
+The wheel only reaches the game over visible content: over empty areas the dock is click-through, so the wheel goes to the window behind it.
+
+All of these stay within `DockConfig.minThicknessPixels` (default 100) and `maxThicknessPercent` (default 0.5 of the monitor). `Resized` is raised once the window has its new size, so during a fast drag several steps can arrive as one. In the Editor it's raised when the Game view changes size.
+
+To have the camera follow the size automatically, use `DockCameraFitter` (see [Layout components](#layout-components)). Its default fit mode keeps the same amount of world across the dock's thickness, so a taller dock zooms in. `FixedScale` keeps the zoom, so a taller dock shows more of the world.
+
+### Auto-hide
+
+**Auto-hide** (`DockConfig.autoHide`, off by default) waits `autoHideDelay` seconds (default 1) after the cursor leaves, then slides the dock toward its outer edge until only `autoHidePeekPixels` (default 4) remain where it was. On the taskbar's edge it slides under the taskbar. While tucked away it lets every click through. Touching the sliver brings it back. It never slides away while a mouse button is held, while the settings panel, the resize grip or the move handle is in use, or while anything else holds it with `HoldAutoHide`. An auto-hiding dock never reserves screen space.
+
+### Frame pacing
+
+**Frame pacing** picks a frame rate and render interval from the situation:
+
+| Situation | Frame rate | Rendering |
+|---|---|---|
+| The game has focus | `focusedFrameRate` (60) | every frame |
+| Another app has focus, cursor over the dock | `backgroundFrameRate` (30) | every frame |
+| Another app has focus, cursor elsewhere | `backgroundFrameRate` (30) | every `backgroundRenderInterval`th frame (1 = every frame) |
+| The dock can't be seen: hidden, tucked away, or behind a fullscreen app | `hiddenFrameRate` (10) | every frame |
+
+The render interval uses `OnDemandRendering.renderFrameInterval`: `Update` still runs every frame, so game logic keeps its pace and only drawing is skipped. A value of 2–4 suits most idle games.
 
 Treat an invisible but clickable region as content:
 
@@ -155,16 +215,18 @@ class DragHandle : MonoBehaviour, IDockHitTestProvider
 | Component | What it does |
 |---|---|
 | `DockLayoutSwitcher` | Turns `horizontalOnly` objects on for top/bottom docks and `verticalOnly` objects on for left/right docks. Raises `onEdgeChanged` and `onOrientationChanged`. |
-| `DockCameraFitter` | Keeps `worldUnitsAcross` world units visible across the dock. Optional whole-number pixel scaling for pixel art. |
+| `DockCameraFitter` | Sizes an orthographic camera to the dock, updating as it's resized. `fitMode`: **Thickness** (default) keeps `worldUnitsAcross` world units across the dock's thickness, so a taller dock zooms in; **Length** keeps `worldUnitsAlong` units along the dock; **FixedScale** keeps `screenPixelsPerUnit`, so a taller dock shows more. Optional whole-number pixel scaling for pixel art. |
 | `DockTransparentCamera` | Clears the camera to transparent black and, in URP, turns off camera dithering. Uses an opaque color when transparency is off. |
 
 ## Ready-made pieces
 
 | Component | What it does |
 |---|---|
-| `DockTrayIcon` | An icon in the Windows notification area (the menu bar on macOS), using the game's icon from Player Settings. Left-click shows or hides the dock. Right-click opens a menu: Show/Hide, Dock to (edge), Always on top, Start with Windows, your items (`AddMenuItem(label, onClick, isChecked)`), Quit. Put it on the controller's GameObject. |
-| `DockResizeHandle` (uGUI) | A grip on the dock's inner edge. Dragging it changes the thickness between `minThickness` and `maxFraction` of the monitor, and saves when released. `DockResizeHandle.Create(canvasTransform)` makes one. |
-| `DockSettingsPanel` (uGUI) | Edge, size, length, alignment, monitor, always on top, taskbar button, reserve screen space, step aside for fullscreen, soft transparency (PerPixelAlpha), start with Windows, and reset. Covers the dock while open; fills columns in a horizontal dock and rows in a vertical one, and scrolls if needed. `DockSettingsPanel.Create(canvas)`, then `Open()`, `Close()` or `Toggle()`. |
+| `DockTrayIcon` | An icon in the Windows notification area (the menu bar on macOS), using the game's icon from Player Settings. Left-click shows or hides the dock. Right-click opens a menu: Show/Hide, Dock to (edge), Always on top, Auto-hide, Start with Windows, your items (`AddMenuItem(label, onClick, isChecked)`), Quit. Put it on the controller's GameObject. |
+| `DockResizeHandle` (uGUI) | A grip on the dock's inner edge. Dragging it, or turning the mouse wheel over it (`scrollStep` pixels per notch, default 20), changes the thickness within the dock's `ThicknessLimits`. `Resized` is raised as it changes, and the size is saved when the drag ends or the wheel stops. `DockResizeHandle.Create(canvasTransform)` makes one. |
+| `DockHotkey` | A system-wide shortcut, such as `Ctrl+Alt+D`, that works while another app has focus. The default action shows a hidden dock, brings back a tucked-away one, or else hides it; `onPressed` lets you add your own. Needs Ctrl, Alt, Shift or Win (except F13–F24). If another app already has the combination, Windows refuses it and a warning is logged; `SetShortcut("Ctrl+Shift+F9")` changes it at runtime. One component per shortcut. Windows only. |
+| `DockMoveHandle` (uGUI) | Put it on any UI element, such as a "Move" button. Pressing and dragging it moves the dock to the nearest edge of the monitor under the cursor, live, and saves when released. `hysteresis` (48 px) stops it flickering between two edges near a corner. |
+| `DockSettingsPanel` (uGUI) | Edge, size, length, alignment, monitor, always on top, taskbar button, auto-hide, reserve screen space, step aside for fullscreen, soft transparency (PerPixelAlpha), start with Windows, and reset. Covers the dock while open; fills columns in a horizontal dock and rows in a vertical one, and scrolls if needed. `DockSettingsPanel.Create(canvas)`, then `Open()`, `Close()` or `Toggle()`. |
 
 The uGUI pieces need a Screen Space Overlay canvas and an EventSystem. They're built from code with no assets, so restyle them or use them as a starting point for your own UI.
 
@@ -183,6 +245,9 @@ The uGUI pieces need a Screen Space Overlay canvas and an EventSystem. They're b
 7. Fullscreen apps: twice a second it checks whether another process's focused window covers the dock's monitor (a maximized window with a title bar doesn't count). If so it sends the dock to the bottom of the z-order (`HWND_BOTTOM`) or hides it.
 8. The tray icon uses `Shell_NotifyIcon` with a hidden window of its own. Unity's message loop delivers its messages; menu commands run on the next frame.
 9. Start with Windows writes the per-user `Run` registry key, and treats an entry turned off in Task Manager as off.
+10. Auto-hide moves the window with `SetWindowPos` (no resize, so no new backbuffer) and puts it just below `Shell_TrayWnd` in the z-order while it's away.
+11. Hotkeys use `RegisterHotKey` with a hidden message-only window that receives `WM_HOTKEY`.
+12. When click-through switches off, the dock posts one `WM_MOUSEMOVE` with the cursor's current position to the game window. Otherwise Unity would still have the position from before the window became click-through, and a click before the next real move would land in the wrong place.
 
 ### Known limitations
 
@@ -197,6 +262,8 @@ The uGUI pieces need a Screen Space Overlay canvas and an EventSystem. They're b
 - **A crash leaves the reserved strip in place** if *Reserve Screen Space* was on. Windows reclaims the space when Explorer notices the window is gone, or you can restart Explorer.
 - **Window size is in physical pixels.** Use `PercentOfScreen` if you want the dock to scale with the display.
 - **The game pauses while the tray menu is open**, because Windows runs the menu on the game's main thread.
+- **Auto-hide on a monitor edge shared with another monitor**: the part of the dock that slides away shows on the neighbouring monitor.
+- **Global hotkeys are Windows only.** On macOS, `DockHotkey` does nothing yet.
 - **Start with Windows points at the current executable.** If the game moves (for example a Steam library move), `IsEnabled` reports false until `SetEnabled(true)` is called again.
 
 ## macOS (experimental, untested)

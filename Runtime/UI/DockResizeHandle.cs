@@ -7,19 +7,19 @@ using UnityEngine.UI;
 namespace DesktopDock.UI
 {
     /// <summary>
-    /// A grip on the dock's inner edge (the edge facing the desktop) that the player drags to make the dock thicker or
-    /// thinner. The new size is saved when the drag ends. Put it on a UI Graphic with Raycast Target on, under a
-    /// Screen Space Overlay canvas, or call <see cref="Create"/>. Only resizes in Windows and macOS builds.
+    /// A grip on the dock's inner edge (the edge facing the desktop) that the player drags to make the dock's visible
+    /// area thicker or thinner, or scrolls the mouse wheel over. <see cref="DesktopDockController.Resized"/> is raised
+    /// as the size changes, and the new size is saved when the drag ends. The size stays within
+    /// <see cref="DockConfig.minThicknessPixels"/> and <see cref="DockConfig.maxThicknessPercent"/>. Put it on a UI
+    /// Graphic with Raycast Target on, under a Screen Space Overlay canvas, or call <see cref="Create"/>. Only resizes in
+    /// Windows and macOS builds.
     /// </summary>
     [RequireComponent(typeof(RectTransform))]
     [AddComponentMenu("Desktop Dock/Dock Resize Handle")]
-    public sealed class DockResizeHandle : MonoBehaviour, IPointerDownHandler, IPointerEnterHandler, IPointerExitHandler
+    public sealed class DockResizeHandle : MonoBehaviour, IPointerDownHandler, IPointerEnterHandler, IPointerExitHandler, IScrollHandler
     {
-        [Tooltip("Smallest thickness the player can drag to, in pixels.")]
-        [Min(16)] public int minThickness = 100;
-
-        [Tooltip("Largest thickness, as a fraction of the monitor's height (top/bottom docks) or width (left/right docks).")]
-        [Range(0.05f, 0.9f)] public float maxFraction = 0.5f;
+        [Tooltip("Pixels the dock grows or shrinks per notch of the mouse wheel over the grip. 0 = the wheel does nothing.")]
+        [Min(0)] public int scrollStep = 20;
 
         [Tooltip("Move the grip to the inner edge whenever the dock changes edge.")]
         public bool autoPosition = true;
@@ -46,7 +46,6 @@ namespace DesktopDock.UI
         private DockEdge _edge;
         private RectInt _startRect;
         private int _grabOffset;
-        private int _maxThickness;
         private int _lastSent;
 
         /// <summary>Creates a grip under <paramref name="parent"/> (a RectTransform in a Screen Space Overlay canvas).</summary>
@@ -115,18 +114,13 @@ namespace DesktopDock.UI
             if (dock == null || !dock.IsDockingActive || !state.HasValue || state.Value.IsSimulated) return;
             if (!dock.Platform.TryGetCursorDesktopPosition(out var cursor)) return;
 
-            var monitors = dock.Monitors;
-            if (state.Value.MonitorIndex < 0 || state.Value.MonitorIndex >= monitors.Count) return;
-            var bounds = monitors[state.Value.MonitorIndex].bounds;
-
             _edge = state.Value.Edge;
             _startRect = state.Value.WindowRect;
             // Keep the grip under the cursor instead of jumping by however far into the grip the player clicked.
             _grabOffset = state.Value.Thickness - DockGeometry.ThicknessFromCursor(_edge, _startRect, cursor);
-            int across = _edge.Orientation() == DockOrientation.Horizontal ? bounds.height : bounds.width;
-            _maxThickness = Mathf.Max(minThickness, Mathf.RoundToInt(across * maxFraction));
             _lastSent = state.Value.Thickness;
             IsDragging = true;
+            dock.HoldAutoHide(this);
             UpdateTint();
         }
 
@@ -142,8 +136,55 @@ namespace DesktopDock.UI
             UpdateTint();
         }
 
+        /// <summary>The mouse wheel over the grip: up makes the dock thicker, down thinner.</summary>
+        public void OnScroll(PointerEventData eventData)
+        {
+            var dock = DesktopDockController.Instance;
+            if (scrollStep <= 0 || dock == null || !dock.IsDockingActive || IsDragging) return;
+            int notches = DockGeometry.WheelNotches(eventData.scrollDelta.y);
+            if (notches == 0) return;
+            dock.ResizeBy(notches * scrollStep, save: false);
+            _saveAt = Time.unscaledTime + 0.5f; // save once the wheel has been still for a moment
+            // The grip moves with the dock's edge, out from under a cursor that stays put. Catch the wheel anywhere on
+            // the dock until it has been still for a moment, so the next notches still resize instead of falling
+            // through the click-through areas to the window behind.
+            SetScrollCatcher(true);
+        }
+
+        private float _saveAt = -1f;
+        private RectTransform _scrollCatcher;
+
+        private void SetScrollCatcher(bool on)
+        {
+            if (on && _scrollCatcher == null)
+            {
+                // An invisible child, so its events bubble up to this grip.
+                var img = DockUI.Image("Scroll Catcher", transform, new Color(0f, 0f, 0f, 0f));
+                _scrollCatcher = img.rectTransform;
+            }
+            if (_scrollCatcher == null) return;
+            if (on)
+            {
+                // Cover the whole canvas (Screen Space Overlay, so world units are screen pixels).
+                var canvas = GetComponentInParent<Canvas>();
+                var root = canvas != null ? (RectTransform)canvas.rootCanvas.transform : (RectTransform)transform;
+                _scrollCatcher.anchorMin = _scrollCatcher.anchorMax = _scrollCatcher.pivot = new Vector2(0.5f, 0.5f);
+                _scrollCatcher.sizeDelta = root.rect.size * root.lossyScale.x / Mathf.Max(0.0001f, transform.lossyScale.x);
+                _scrollCatcher.position = root.position;
+            }
+            _scrollCatcher.gameObject.SetActive(on);
+        }
+
         private void Update()
         {
+            if (_saveAt >= 0f && Time.unscaledTime >= _saveAt)
+            {
+                _saveAt = -1f;
+                SetScrollCatcher(false);
+                var d = DesktopDockController.Instance;
+                if (d != null && d.HasUnsavedChanges) d.SaveSettings();
+            }
+
             if (!IsDragging) return;
             var dock = DesktopDockController.Instance;
             if (dock == null || !dock.IsDockingActive)
@@ -161,15 +202,10 @@ namespace DesktopDock.UI
             }
             if (!platform.TryGetCursorDesktopPosition(out var cursor)) return;
 
-            int thickness = Mathf.Clamp(DockGeometry.ThicknessFromCursor(_edge, _startRect, cursor) + _grabOffset,
-                minThickness, _maxThickness);
+            int thickness = DockGeometry.ThicknessFromCursor(_edge, _startRect, cursor) + _grabOffset;
             if (thickness == _lastSent) return;
             _lastSent = thickness;
-            dock.Modify(c =>
-            {
-                c.thicknessUnit = DockSizeUnit.Pixels;
-                c.thicknessPixels = thickness;
-            }, save: false);
+            dock.SetThicknessPixels(thickness, save: false); // clamps to the dock's thickness limits
         }
 
         private void EndDrag()
@@ -177,7 +213,11 @@ namespace DesktopDock.UI
             if (!IsDragging) return;
             IsDragging = false;
             var dock = DesktopDockController.Instance;
-            if (dock != null && dock.HasUnsavedChanges) dock.SaveSettings();
+            if (dock != null)
+            {
+                dock.ReleaseAutoHide(this);
+                if (dock.HasUnsavedChanges) dock.SaveSettings();
+            }
             UpdateTint();
         }
 

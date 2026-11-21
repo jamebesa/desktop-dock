@@ -3,7 +3,7 @@ using UnityEngine.EventSystems;
 
 namespace DesktopDock.Samples
 {
-    /// <summary>Wanders along the ground; hops and changes colour when clicked.</summary>
+    /// <summary>Wanders along the ground; hops, changes colour and pays out coins when clicked.</summary>
     public sealed class DockDemoCritter : MonoBehaviour, IPointerClickHandler
     {
         private DockDemo _demo;
@@ -28,6 +28,9 @@ namespace DesktopDock.Samples
             shadow.sortingOrder = -1;
             _shadow = shadow.transform;
         }
+
+        /// <summary>A small hop, for example when the critter arrives.</summary>
+        public void Hop(float velocity = 7f) => _hopVelocity = velocity;
 
         private void OnDestroy()
         {
@@ -56,9 +59,9 @@ namespace DesktopDock.Samples
 
         public void OnPointerClick(PointerEventData eventData)
         {
-            _hopVelocity = 7f;
+            Hop();
             _sr.color = Color.HSVToRGB(Random.value, 0.55f, 0.95f);
-            _demo.AddScore();
+            _demo.Boop();
         }
     }
 }

@@ -125,8 +125,20 @@ namespace DesktopDock.Platform.MacOS
             MacCoordinates.DesktopToCocoa(rect, _primaryHeight, _scaleTracker.Scale, out double x, out double y, out double w, out double h);
             MacNative.DD_SetFrame(x, y, w, h, alwaysOnTop ? 1 : 0);
             _lastSetRect = rect;
+            _lastOnTop = alwaysOnTop;
             _hasSetRect = true;
         }
+
+        private bool _lastOnTop;
+
+        public void MoveWindow(Vector2Int topLeft)
+        {
+            if (!_ready || !_hasSetRect) return;
+            SetWindowRect(new RectInt(topLeft, _lastSetRect.size), _lastOnTop);
+        }
+
+        // The menu bar and the Dock already sit above floating windows.
+        public void PlaceBelowTaskbar() { }
 
         public bool TryGetWindowRect(out RectInt rect)
         {

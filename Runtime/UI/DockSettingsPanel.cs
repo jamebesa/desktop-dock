@@ -15,12 +15,7 @@ namespace DesktopDock.UI
     [AddComponentMenu("Desktop Dock/Dock Settings Panel")]
     public sealed class DockSettingsPanel : MonoBehaviour
     {
-        [Tooltip("Smallest dock thickness the Size slider offers, in pixels.")]
-        [Min(16)] public int minThickness = 100;
-
-        [Tooltip("Largest dock thickness the Size slider offers, as a fraction of the monitor.")]
-        [Range(0.05f, 0.9f)] public float maxThicknessFraction = 0.5f;
-
+        // The Size slider's range is the dock's ThicknessLimits (DockConfig.minThicknessPixels / maxThicknessPercent).
         private static readonly Vector2 CellSize = new Vector2(200, 28);
         private const float Spacing = 4f;
         private const float Padding = 8f;
@@ -36,7 +31,7 @@ namespace DesktopDock.UI
         private Slider _size, _length;
         private Text _sizeLabel, _lengthLabel, _monitorLabel;
         private Button _monitorButton;
-        private Toggle _onTop, _taskbar, _reserve, _fullscreen, _softAlpha, _startup;
+        private Toggle _onTop, _taskbar, _autoHide, _reserve, _fullscreen, _softAlpha, _startup;
         private bool _built;
         private bool _refreshing;
 
@@ -77,6 +72,8 @@ namespace DesktopDock.UI
         private void OnEnable()
         {
             DesktopDockController.Docked += OnDocked;
+            // An open panel keeps an auto-hiding dock on screen.
+            DesktopDockController.Instance?.HoldAutoHide(this);
             Refresh();
         }
 
@@ -84,7 +81,9 @@ namespace DesktopDock.UI
         {
             DesktopDockController.Docked -= OnDocked;
             var dock = DesktopDockController.Instance;
-            if (dock != null && dock.HasUnsavedChanges) dock.SaveSettings();
+            if (dock == null) return;
+            dock.ReleaseAutoHide(this);
+            if (dock.HasUnsavedChanges) dock.SaveSettings();
         }
 
         private void OnDocked(DockState _) => Refresh();
@@ -140,11 +139,7 @@ namespace DesktopDock.UI
                 if (_refreshing) return;
                 int px = Mathf.RoundToInt(v);
                 _sizeLabel.text = "Size " + px;
-                Dock?.Modify(c =>
-                {
-                    c.thicknessUnit = DockSizeUnit.Pixels;
-                    c.thicknessPixels = px;
-                }, save: false);
+                Dock?.SetThicknessPixels(px, save: false);
             });
 
             _length = DockUI.Slider(_content, "Length", 74, out _lengthLabel);
@@ -170,6 +165,7 @@ namespace DesktopDock.UI
 
             _onTop = DockUI.Toggle(_content, "Always on top", v => Set(c => c.alwaysOnTop = v), out _);
             _taskbar = DockUI.Toggle(_content, "Show in taskbar", v => Set(c => c.showInTaskbar = v), out _);
+            _autoHide = DockUI.Toggle(_content, "Auto-hide", v => Set(c => c.autoHide = v), out _);
             _reserve = DockUI.Toggle(_content, "Reserve screen space", v => Set(c => c.reserveScreenSpace = v), out _);
             _fullscreen = DockUI.Toggle(_content, "Step aside for fullscreen", v => Set(c =>
                 c.fullscreenBehavior = v ? DockFullscreenBehavior.DropBehind : DockFullscreenBehavior.Ignore), out _);
@@ -240,10 +236,9 @@ namespace DesktopDock.UI
 
                 var monitors = dock.Monitors;
                 int monitorIndex = Mathf.Clamp(state?.MonitorIndex ?? 0, 0, Mathf.Max(0, monitors.Count - 1));
-                var bounds = monitors.Count > 0 ? monitors[monitorIndex].bounds : new RectInt(0, 0, Screen.width, Screen.height);
-                int across = cfg.Orientation == DockOrientation.Horizontal ? bounds.height : bounds.width;
-                _size.minValue = minThickness;
-                _size.maxValue = Mathf.Max(minThickness + 1, Mathf.RoundToInt(across * maxThicknessFraction));
+                var limits = dock.ThicknessLimits;
+                _size.minValue = limits.x;
+                _size.maxValue = Mathf.Max(limits.x + 1, limits.y);
                 // From the config, not the window, so a slider drag isn't fought by a dock pass that lags behind it.
                 int thickness = cfg.thicknessUnit == DockSizeUnit.Pixels || !state.HasValue || state.Value.IsSimulated
                     ? cfg.thicknessPixels
@@ -261,6 +256,9 @@ namespace DesktopDock.UI
                 _taskbar.isOn = cfg.showInTaskbar;
                 _reserve.isOn = cfg.reserveScreenSpace;
                 _fullscreen.isOn = cfg.fullscreenBehavior != DockFullscreenBehavior.Ignore;
+                _autoHide.isOn = cfg.autoHide;
+                // An auto-hiding dock never reserves space, so the reserve toggle has no effect while it's on.
+                _reserve.interactable = !cfg.autoHide;
                 // Where ColorKey can't work (Direct3D12, Vulkan, flip model) soft transparency is the only option, so the
                 // toggle shows it on and can't be turned off.
                 _softAlpha.isOn = dock.ActiveTransparencyMode == DockTransparencyMode.PerPixelAlpha;

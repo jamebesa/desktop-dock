@@ -291,6 +291,23 @@ namespace DesktopDock.Platform.Windows
             _overlay?.Stack(Win32.HWND_BOTTOM);
         }
 
+        public void MoveWindow(Vector2Int topLeft)
+        {
+            if (_hwnd == IntPtr.Zero) return;
+            Win32.SetWindowPos(_hwnd, IntPtr.Zero, topLeft.x, topLeft.y, 0, 0,
+                Win32.SWP_NOSIZE | Win32.SWP_NOZORDER | Win32.SWP_NOACTIVATE);
+        }
+
+        public void PlaceBelowTaskbar()
+        {
+            if (_hwnd == IntPtr.Zero) return;
+            IntPtr taskbar = Win32.FindWindow("Shell_TrayWnd", null);
+            if (taskbar == IntPtr.Zero) return;
+            // Inserting after a top-most window keeps ours top-most, just under it.
+            Win32.SetWindowPos(_hwnd, taskbar, 0, 0, 0, 0, Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
+            _overlay?.Stack(taskbar);
+        }
+
         public bool IsFullscreenAppActive(RectInt monitorBounds)
         {
             IntPtr fg = Win32.GetForegroundWindow();
@@ -332,6 +349,14 @@ namespace DesktopDock.Platform.Windows
             ex = clickThrough ? ex | Win32.WS_EX_TRANSPARENT : ex & ~Win32.WS_EX_TRANSPARENT;
             Win32.SetWindowLong(_hwnd, Win32.GWL_EXSTYLE, ex);
             _clickThrough = clickThrough;
+
+            // While click-through, the cursor's moves went to the window behind, so Unity's mouse position is stale.
+            // Without a fresh one, a click that comes before the next move would land wherever the cursor last was.
+            if (!clickThrough && Win32.GetCursorPos(out var p) && Win32.ScreenToClient(_hwnd, ref p))
+            {
+                long lParam = ((p.Y & 0xFFFF) << 16) | (p.X & 0xFFFF);
+                Win32.PostMessage(_hwnd, Win32.WM_MOUSEMOVE, IntPtr.Zero, new IntPtr(lParam));
+            }
         }
 
         public bool TryGetCursorPosition(out Vector2 screenPosition, out bool insideWindow)

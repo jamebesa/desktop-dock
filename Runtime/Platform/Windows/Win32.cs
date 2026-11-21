@@ -185,10 +185,26 @@ namespace DesktopDock.Platform.Windows
         [DllImport("user32.dll")]
         public static extern bool SetForegroundWindow(IntPtr hWnd);
 
+        [DllImport("user32.dll", EntryPoint = "FindWindowW", CharSet = CharSet.Unicode)]
+        public static extern IntPtr FindWindow(string className, string windowName);
+
+        // ------------------------------------------------------------ global hotkeys
+
+        public const uint WM_HOTKEY = 0x0312;
+        public const uint MOD_NOREPEAT = 0x4000;
+        public static readonly IntPtr HWND_MESSAGE = new IntPtr(-3);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint modifiers, uint vk);
+
+        [DllImport("user32.dll")]
+        public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
         // ------------------------------------------------------------ tray icon: hidden window, icon, menu
 
         public const uint WM_NULL = 0x0000;
         public const uint WM_CONTEXTMENU = 0x007B;
+        public const uint WM_MOUSEMOVE = 0x0200;
         public const uint WM_LBUTTONUP = 0x0202;
         public const uint WM_RBUTTONUP = 0x0205;
         public const uint WM_USER = 0x0400;

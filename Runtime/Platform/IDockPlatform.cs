@@ -51,6 +51,15 @@ namespace DesktopDock.Platform
         /// <summary>Drop to the bottom of the z-order, losing top-most status until the next <see cref="SetWindowRect"/>.</summary>
         void SendToBack();
 
+        /// <summary>Move the window's top-left corner (desktop coordinates) without changing its size or z-order.</summary>
+        void MoveWindow(Vector2Int topLeft);
+
+        /// <summary>
+        /// Put the window just below the taskbar in the z-order, so a dock tucked away by auto-hide slides under the
+        /// taskbar instead of over it. No-op where there's no such bar above the dock (macOS).
+        /// </summary>
+        void PlaceBelowTaskbar();
+
         /// <summary>Whether another app's window has focus and covers all of <paramref name="monitorBounds"/>
         /// (a fullscreen game or video).</summary>
         bool IsFullscreenAppActive(RectInt monitorBounds);
@@ -118,6 +127,8 @@ namespace DesktopDock.Platform
 
         public void SetVisible(bool visible) { }
         public void SendToBack() { }
+        public void MoveWindow(Vector2Int topLeft) { }
+        public void PlaceBelowTaskbar() { }
         public bool IsFullscreenAppActive(RectInt monitorBounds) => false;
 
         public bool TryGetCursorDesktopPosition(out Vector2Int position)
@@ -149,6 +160,30 @@ namespace DesktopDock.Platform
                 ? c.thicknessPixels
                 : Mathf.RoundToInt(c.thicknessPercent * across);
             return Mathf.Clamp(t, 16, Mathf.Max(16, across));
+        }
+
+        /// <summary>
+        /// Whole mouse-wheel notches from a UI scroll delta. The legacy input module reports about 1 per notch; the Input
+        /// System may report 120 per notch on Windows.
+        /// </summary>
+        public static int WheelNotches(float delta)
+        {
+            if (Mathf.Approximately(delta, 0f)) return 0;
+            float magnitude = Mathf.Abs(delta);
+            int notches = Mathf.Max(1, Mathf.RoundToInt(magnitude >= 30f ? magnitude / 120f : magnitude));
+            return delta > 0 ? notches : -notches;
+        }
+
+        /// <summary>
+        /// Smallest and largest thickness (x and y) that resizing may set, for a monitor <paramref name="across"/> pixels
+        /// across the dock (its height for top/bottom docks, its width for left/right).
+        /// </summary>
+        public static Vector2Int ThicknessLimits(DockConfig c, int across)
+        {
+            across = Mathf.Max(16, across);
+            int min = Mathf.Clamp(c.minThicknessPixels, 16, across);
+            int max = Mathf.Clamp(Mathf.RoundToInt(across * c.maxThicknessPercent), min, across);
+            return new Vector2Int(min, max);
         }
 
         /// <summary>Dock rect inside <paramref name="area"/> (desktop coordinates, y down).</summary>
@@ -186,6 +221,77 @@ namespace DesktopDock.Platform
             DockEdge.Right => dockRect.xMax - cursor.x,
             _ => dockRect.yMax - cursor.y,
         };
+
+        /// <summary>
+        /// Where the window sits while auto-hide is tucking it away. <paramref name="progress"/> runs from 0 (fully shown at
+        /// <paramref name="dockRect"/>) to 1 (pushed toward its outer edge until only <paramref name="peek"/> pixels of its
+        /// inner side remain where the dock was). Desktop coordinates.
+        /// </summary>
+        public static RectInt AutoHideRect(RectInt dockRect, DockEdge edge, int peek, float progress)
+        {
+            int thickness = edge.Orientation() == DockOrientation.Horizontal ? dockRect.height : dockRect.width;
+            int travel = Mathf.Max(0, thickness - Mathf.Max(1, peek));
+            int offset = Mathf.RoundToInt(travel * Mathf.Clamp01(progress));
+            var r = dockRect;
+            switch (edge)
+            {
+                case DockEdge.Top: r.y -= offset; break;
+                case DockEdge.Left: r.x -= offset; break;
+                case DockEdge.Right: r.x += offset; break;
+                default: r.y += offset; break;
+            }
+            return r;
+        }
+
+        /// <summary>
+        /// The edge of <paramref name="bounds"/> nearest to <paramref name="cursor"/>. Stays on <paramref name="current"/>
+        /// unless another edge is closer by more than <paramref name="hysteresis"/> pixels, so a drag near a corner doesn't
+        /// flicker between two edges.
+        /// </summary>
+        public static DockEdge NearestEdge(RectInt bounds, Vector2Int cursor, DockEdge current, int hysteresis)
+        {
+            float Distance(DockEdge e) => e switch
+            {
+                DockEdge.Top => cursor.y - bounds.yMin,
+                DockEdge.Left => cursor.x - bounds.xMin,
+                DockEdge.Right => bounds.xMax - cursor.x,
+                _ => bounds.yMax - cursor.y,
+            };
+
+            var best = current;
+            float bestDistance = Distance(current) - hysteresis;
+            foreach (DockEdge e in new[] { DockEdge.Bottom, DockEdge.Top, DockEdge.Left, DockEdge.Right })
+            {
+                float d = Distance(e);
+                if (d < bestDistance)
+                {
+                    best = e;
+                    bestDistance = d;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>Index of the monitor containing <paramref name="point"/>, or the nearest one; -1 if there are none.</summary>
+        public static int MonitorAt(IReadOnlyList<DockMonitor> monitors, Vector2Int point)
+        {
+            int nearest = -1;
+            float nearestDistance = float.MaxValue;
+            for (int i = 0; i < monitors.Count; i++)
+            {
+                var b = monitors[i].bounds;
+                if (b.Contains(point)) return i;
+                float dx = Mathf.Max(b.xMin - point.x, 0, point.x - b.xMax + 1);
+                float dy = Mathf.Max(b.yMin - point.y, 0, point.y - b.yMax + 1);
+                float d = dx * dx + dy * dy;
+                if (d < nearestDistance)
+                {
+                    nearest = i;
+                    nearestDistance = d;
+                }
+            }
+            return nearest;
+        }
 
         /// <summary>
         /// Whether a focused window with rect <paramref name="window"/> counts as fullscreen on a monitor. A maximized

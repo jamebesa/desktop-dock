@@ -25,6 +25,7 @@ namespace DesktopDock
         [Header("Built-in menu items")]
         public bool showEdgeItems = true;
         public bool showAlwaysOnTopItem = true;
+        public bool showAutoHideItem = true;
         [Tooltip("\"Start with Windows\" (\"Open at Login\" on macOS). Only appears in builds, where it is supported.")]
         public bool showStartWithWindowsItem = true;
         public bool showQuitItem = true;
@@ -117,6 +118,15 @@ namespace DesktopDock
                         Label = "Always on top",
                         Checked = cfg.alwaysOnTop,
                         OnClick = () => dock.SetAlwaysOnTop(!dock.Config.alwaysOnTop),
+                    });
+                }
+                if (showAutoHideItem)
+                {
+                    items.Add(new TrayMenuItem
+                    {
+                        Label = "Auto-hide",
+                        Checked = cfg.autoHide,
+                        OnClick = () => dock.SetAutoHide(!dock.Config.autoHide),
                     });
                 }
             }

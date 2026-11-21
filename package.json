@@ -1,8 +1,8 @@
 {
   "name": "com.desktopdock.unity",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "displayName": "Desktop Dock",
-  "description": "Turns a Unity standalone player into a borderless, transparent strip docked to an edge of the desktop (bottom, top, left or right), in the style of idle 'desktop companion' games. Click-through for empty areas, always on top, stepping aside for fullscreen apps, optional screen-space reservation (Windows app bar), a tray icon, drag-to-resize, a ready-made settings panel, start with Windows, and opt-in per-pixel alpha transparency. Windows; macOS is experimental and untested.",
+  "description": "Turns a Unity standalone player into a borderless, transparent strip docked to an edge of the desktop (bottom, top, left or right), in the style of idle 'desktop companion' games. Click-through for empty areas, always on top, auto-hide, stepping aside for fullscreen apps, optional screen-space reservation (Windows app bar), resizing by drag, scroll wheel or API with a Resized event, drag to another edge, a tray icon, a global hotkey, a ready-made settings panel, start with Windows, low idle cost, and opt-in per-pixel alpha transparency. Windows; macOS is experimental and untested.",
   "unity": "2021.3",
   "license": "MIT",
   "author": {
@@ -21,7 +21,9 @@
     "overlay",
     "appbar",
     "tray",
-    "macos"
+    "macos",
+    "autohide",
+    "hotkey"
   ],
   "dependencies": {
     "com.unity.modules.screencapture": "1.0.0"
