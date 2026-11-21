@@ -1,0 +1,36 @@
+{
+  "name": "com.desktopdock.unity",
+  "version": "0.2.0",
+  "displayName": "Desktop Dock",
+  "description": "Turns a Unity standalone player into a borderless, transparent strip docked to an edge of the desktop (bottom, top, left or right), in the style of idle 'desktop companion' games. Click-through for empty areas, always on top, stepping aside for fullscreen apps, optional screen-space reservation (Windows app bar), a tray icon, drag-to-resize, a ready-made settings panel, start with Windows, and opt-in per-pixel alpha transparency. Windows; macOS is experimental and untested.",
+  "unity": "2021.3",
+  "license": "MIT",
+  "author": {
+    "name": "James Brotherston",
+    "url": "https://github.com/jamebesa"
+  },
+  "documentationUrl": "https://github.com/jamebesa/desktop-dock#readme",
+  "changelogUrl": "https://github.com/jamebesa/desktop-dock/blob/main/CHANGELOG.md",
+  "licensesUrl": "https://github.com/jamebesa/desktop-dock/blob/main/LICENSE.md",
+  "keywords": [
+    "desktop",
+    "dock",
+    "transparent",
+    "window",
+    "idle",
+    "overlay",
+    "appbar",
+    "tray",
+    "macos"
+  ],
+  "dependencies": {
+    "com.unity.modules.screencapture": "1.0.0"
+  },
+  "samples": [
+    {
+      "displayName": "Basic Dock",
+      "description": "A self-building demo scene: drop DockDemo on an empty GameObject, build for Windows, and get a docked transparent strip with edge-switch buttons and clickable critters.",
+      "path": "Samples~/BasicDock"
+    }
+  ]
+}
