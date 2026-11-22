@@ -33,6 +33,7 @@ namespace DesktopDock.Platform.MacOS
         // no frames to copy: transparency is always per pixel, whatever DockConfig.transparencyMode says.
         public bool SupportsColorKey => false;
         public bool BlendsAlphaNatively => true;
+        public float PixelsPerPoint => _ready && _scaleTracker.Scale > 0f ? _scaleTracker.Scale : 1f;
         public bool PresentAlphaFrame(IntPtr bgraPixels, int width, int height, bool topRowFirst) => false;
 
         public bool Initialize()
@@ -114,7 +115,8 @@ namespace DesktopDock.Platform.MacOS
                 Debug.Log("[DesktopDock] Reserve Screen Space has no macOS equivalent and is ignored.");
             }
             // workArea is NSScreen.visibleFrame: it already leaves out the menu bar and the Dock.
-            return DockGeometry.Compute(config, config.respectTaskbar ? monitor.workArea : monitor.bounds);
+            var rect = DockGeometry.Compute(config, config.respectTaskbar ? monitor.workArea : monitor.bounds);
+            return MacCoordinates.SnapToPoints(rect, _scaleTracker.Scale);
         }
 
         public void ReleaseReservedSpace() { }

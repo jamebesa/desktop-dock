@@ -130,6 +130,21 @@ namespace DesktopDock.Platform.MacOS
                 ? expected
                 : actual;
 
+        /// <summary>
+        /// <paramref name="rect"/> with each edge moved to the nearest whole point, so its size in pixels is one Unity
+        /// can render. AppKit accepts a frame 159.5 points tall, but Unity sizes its backbuffer in whole points (320
+        /// pixels for that frame), so the backbuffer would never match the 319 pixels asked for and every resize step
+        /// would wait for it. Edges already on the point grid, like a screen's, stay put.
+        /// </summary>
+        public static RectInt SnapToPoints(RectInt rect, float scale)
+        {
+            if (scale <= 1f) return rect;
+            int Snap(int v) => Round(Round(v / (double)scale) * (double)scale);
+            int x0 = Snap(rect.xMin), y0 = Snap(rect.yMin), x1 = Snap(rect.xMax), y1 = Snap(rect.yMax);
+            int minSize = Round(scale);
+            return new RectInt(x0, y0, Mathf.Max(minSize, x1 - x0), Mathf.Max(minSize, y1 - y0));
+        }
+
         private static int Round(double v) => (int)System.Math.Round(v, System.MidpointRounding.AwayFromZero);
     }
 }

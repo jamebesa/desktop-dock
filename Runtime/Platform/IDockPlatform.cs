@@ -26,6 +26,12 @@ namespace DesktopDock.Platform
         /// </summary>
         bool BlendsAlphaNatively { get; }
 
+        /// <summary>
+        /// Window pixels per point of the OS's UI scale: 2 on a Retina Mac with Mac Retina Support on, otherwise 1.
+        /// Windows reports 1: the dock works in physical pixels there and doesn't follow display scaling yet.
+        /// </summary>
+        float PixelsPerPoint { get; }
+
         /// <summary>Find and take hold of the game window. Returns false if it can't be found.</summary>
         bool Initialize();
 
@@ -106,6 +112,7 @@ namespace DesktopDock.Platform
         public bool IsSupported => false;
         public bool SupportsColorKey => true;
         public bool BlendsAlphaNatively => false;
+        public float PixelsPerPoint => 1f;
         public bool Initialize() => false;
 
         public IReadOnlyList<DockMonitor> GetMonitors()

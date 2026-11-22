@@ -28,6 +28,7 @@ namespace DesktopDock.Platform.Windows
         public bool IsSupported => true;
 
         public bool BlendsAlphaNatively => false;
+        public float PixelsPerPoint => 1f;
 
         private bool? _supportsColorKey;
 

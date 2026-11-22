@@ -404,6 +404,8 @@ namespace DesktopDock.Samples
             var canvasGo = new GameObject("Dock UI", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
             var canvas = canvasGo.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            // Same size in points on a Retina Mac as on Windows, instead of half size.
+            canvasGo.AddComponent<DockCanvasScale>();
 
             var panel = new GameObject("Buttons", typeof(RectTransform), typeof(GridLayoutGroup), typeof(ContentSizeFitter));
             var prt = (RectTransform)panel.transform;

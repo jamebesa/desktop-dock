@@ -44,10 +44,10 @@ Not tested yet: IL2CPP builds (the code avoids anything IL2CPP lacks), more than
 
 Pick one:
 
-- **Git (recommended):** Package Manager → **+** → *Add package from git URL…*, then enter the URL below. The `#v0.4.0` pins a release; leave it off to follow the latest version.
+- **Git (recommended):** Package Manager → **+** → *Add package from git URL…*, then enter the URL below. The `#v0.4.1` pins a release; leave it off to follow the latest version.
 
   ```
-  https://github.com/jamebesa/desktop-dock.git#v0.4.0
+  https://github.com/jamebesa/desktop-dock.git#v0.4.1
   ```
 - **Local folder:** download or clone the package, then Package Manager → **+** → *Add package from disk…* → select its `package.json`.
 - **Embedded:** copy the package folder into your project's `Packages/` folder.
@@ -299,6 +299,7 @@ Without the bundle a macOS build logs a warning and doesn't dock. Everything els
 
 - **Fullscreen Mode: Windowed.** **Tools → Desktop Dock → Apply Recommended Player Settings** sets this for every platform. Its graphics-API checks only apply to Windows; Metal is fine.
 - **Mac Retina Support** can be on or off. Desktop coordinates are in the pixels Unity renders, so with it on, `thicknessPixels` covers half as many points on a Retina screen.
+- **UI on Retina screens:** with Retina Support on, a Constant Pixel Size canvas shows buttons and text at half size. Add **Desktop Dock → Dock Canvas Scale** to the canvas: it multiplies the canvas's scale factor by `DesktopDockController.PixelsPerPoint` (2 on Retina, 1 on Windows and in the Editor). The Basic Dock sample does this.
 - **Allow Fullscreen Switch** off, so ⌘F or the green button can't make the dock fullscreen.
 
 ### What it does

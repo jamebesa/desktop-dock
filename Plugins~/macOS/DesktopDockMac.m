@@ -167,15 +167,20 @@ DD_EXPORT double DD_GetPrimaryScreenHeight(void)
 
 // ============================================================================================ window style
 
+// The style is re-applied on every resize step, so only change what differs: setting a window's or layer's
+// opacity or background, even to the same value, makes AppKit redisplay the window, a visible flash mid-drag.
 static void DDSetLayersOpaque(NSView *view, BOOL opaque)
 {
     if (view == nil) return;
     CALayer *layer = view.layer;
     if (layer != nil)
     {
-        layer.opaque = opaque;
-        if (!opaque) layer.backgroundColor = CGColorGetConstantColor(kCGColorClear);
-        for (CALayer *sub in layer.sublayers) sub.opaque = opaque;
+        if (layer.opaque != opaque) layer.opaque = opaque;
+        CGColorRef clear = CGColorGetConstantColor(kCGColorClear);
+        if (!opaque && (layer.backgroundColor == NULL || !CGColorEqualToColor(layer.backgroundColor, clear)))
+            layer.backgroundColor = clear;
+        for (CALayer *sub in layer.sublayers)
+            if (sub.opaque != opaque) sub.opaque = opaque;
     }
     for (NSView *child in view.subviews) DDSetLayersOpaque(child, opaque);
 }
@@ -195,11 +200,13 @@ DD_EXPORT void DD_ApplyStyle(int transparent, int showInDock)
         DDAllowKeyWindow(w);
 
         // A shadow would outline the visible content of a transparent window.
-        w.hasShadow = NO;
-        w.opaque = transparent ? NO : YES;
-        w.backgroundColor = transparent ? [NSColor clearColor] : [NSColor blackColor];
-        DDSetLayersOpaque(w.contentView, transparent ? NO : YES);
-        w.ignoresMouseEvents = NO;
+        if (w.hasShadow) w.hasShadow = NO;
+        BOOL opaque = transparent ? NO : YES;
+        if (w.opaque != opaque) w.opaque = opaque;
+        NSColor *background = transparent ? [NSColor clearColor] : [NSColor blackColor];
+        if (![w.backgroundColor isEqual:background]) w.backgroundColor = background;
+        DDSetLayersOpaque(w.contentView, opaque);
+        if (w.ignoresMouseEvents) w.ignoresMouseEvents = NO;
 
         // On every Space, unaffected by Mission Control, not in the Cmd-` cycle, never fullscreen itself, and
         // allowed over other apps' fullscreen windows (the C# side decides whether to step aside).
@@ -210,7 +217,7 @@ DD_EXPORT void DD_ApplyStyle(int transparent, int showInDock)
                | NSWindowCollectionBehaviorFullScreenNone);
         b |= NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorStationary
              | NSWindowCollectionBehaviorIgnoresCycle | NSWindowCollectionBehaviorFullScreenAuxiliary;
-        w.collectionBehavior = b;
+        if (w.collectionBehavior != b) w.collectionBehavior = b;
 
         // The Dock icon and Cmd-Tab entry are the macOS equivalent of the taskbar button.
         NSApplicationActivationPolicy want = showInDock ? NSApplicationActivationPolicyRegular
@@ -226,6 +233,49 @@ DD_EXPORT void DD_ApplyStyle(int transparent, int showInDock)
 
 // ============================================================================================ placement
 
+static void DDCollectMetalLayers(NSView *view, NSMutableArray<CAMetalLayer *> *out)
+{
+    if (view == nil) return;
+    if ([view.layer isKindOfClass:[CAMetalLayer class]]) [out addObject:(CAMetalLayer *)view.layer];
+    for (CALayer *sub in view.layer.sublayers)
+        if ([sub isKindOfClass:[CAMetalLayer class]]) [out addObject:(CAMetalLayer *)sub];
+    for (NSView *child in view.subviews) DDCollectMetalLayers(child, out);
+}
+
+/// While the dock is resized, the picture on screen is Unity's last frame, drawn at the previous size: Unity renders at
+/// the size it had when the frame started, and during a drag the window changes again before Unity catches up. With
+/// Core Animation's default it is stretched to fit, so buttons squash. Pinning it to one edge instead displaces
+/// whatever sits at the other edge (the ground sinks off the screen, or the grip is cropped) for as long as the drag
+/// lasts. So keep both edges exactly where they are and let a thin band across the middle of the picture, usually
+/// empty space in a dock, take up the change: a nine-slice with an unscaled top and bottom (or left and right).
+/// Growing stretches a 1-point band; shrinking squeezes a band as tall as the change down to 1 point. Once Unity
+/// presents a frame at the window's size, the slicing has no effect.
+static void DDKeepEdgesDuringResize(NSWindow *w, NSRect from, NSRect to)
+{
+    BOOL vertical = from.size.height != to.size.height, horizontal = from.size.width != to.size.width;
+    if (!vertical && !horizontal) return;
+
+    CGRect center = CGRectMake(0, 0, 1, 1); // both axes change (a move to another edge): plain stretch
+    if (vertical != horizontal)
+    {
+        CGFloat old = vertical ? from.size.height : from.size.width;
+        CGFloat delta = (vertical ? to.size.height : to.size.width) - old;
+        CGFloat band = old > 1 ? MIN(old, (delta < 0 ? -delta : 0) + 1) / old : 1;
+        center = vertical ? CGRectMake(0, 0.5 - band / 2, 1, band) : CGRectMake(0.5 - band / 2, 0, band, 1);
+    }
+
+    NSMutableArray<CAMetalLayer *> *layers = [NSMutableArray array];
+    DDCollectMetalLayers(w.contentView, layers);
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES]; // contentsCenter is animatable; it must change at once
+    for (CAMetalLayer *layer in layers)
+    {
+        if (![layer.contentsGravity isEqualToString:kCAGravityResize]) layer.contentsGravity = kCAGravityResize;
+        layer.contentsCenter = center;
+    }
+    [CATransaction commit];
+}
+
 /// Never shows a hidden window. alwaysOnTop uses the floating level, which stays below the menu bar and Dock.
 DD_EXPORT void DD_SetFrame(double x, double y, double width, double height, int alwaysOnTop)
 {
@@ -235,7 +285,9 @@ DD_EXPORT void DD_SetFrame(double x, double y, double width, double height, int 
         NSWindowLevel level = alwaysOnTop ? NSFloatingWindowLevel : NSNormalWindowLevel;
         if (w.level != level) w.level = level;
         NSRect frame = NSMakeRect(x, y, width, height);
-        if (!NSEqualRects(w.frame, frame)) [w setFrame:frame display:YES];
+        if (NSEqualRects(w.frame, frame)) return;
+        DDKeepEdgesDuringResize(w, w.frame, frame);
+        [w setFrame:frame display:YES];
     });
 }
 

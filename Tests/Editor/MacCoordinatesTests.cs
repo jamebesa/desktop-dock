@@ -143,5 +143,31 @@ namespace DesktopDock.Tests
             var moved = new RectInt(0, 1300, 3024, 440);
             Assert.AreEqual(moved, MacCoordinates.SnapToExpected(moved, expected));
         }
+
+        [Test]
+        public void SnapToPoints_MovesOddPixelEdgesToWholePoints_OnRetina()
+        {
+            // A bottom dock 319 px tall: the inner edge snaps, the edge on the screen's bottom stays.
+            Assert.AreEqual(new RectInt(0, 2020, 3600, 318), MacCoordinates.SnapToPoints(new RectInt(0, 2019, 3600, 319), Retina));
+            // A top dock: the outer edge stays at the top of the work area.
+            Assert.AreEqual(new RectInt(0, 74, 3024, 222), MacCoordinates.SnapToPoints(new RectInt(0, 74, 3024, 221), Retina));
+            // A screen left of the primary one.
+            Assert.AreEqual(new RectInt(-1920, 0, 1920, 200), MacCoordinates.SnapToPoints(new RectInt(-1920, 0, 1920, 199), Retina));
+        }
+
+        [Test]
+        public void SnapToPoints_KeepsRectsAlreadyOnTheGrid_AndScaleOne()
+        {
+            var even = new RectInt(0, 1744, 3024, 220);
+            Assert.AreEqual(even, MacCoordinates.SnapToPoints(even, Retina));
+            var odd = new RectInt(3, 5, 7, 9);
+            Assert.AreEqual(odd, MacCoordinates.SnapToPoints(odd, 1f));
+        }
+
+        [Test]
+        public void SnapToPoints_NeverCollapsesToZero()
+        {
+            Assert.AreEqual(new RectInt(0, 100, 100, 2), MacCoordinates.SnapToPoints(new RectInt(0, 100, 100, 1), Retina));
+        }
     }
 }

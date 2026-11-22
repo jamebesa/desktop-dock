@@ -155,6 +155,12 @@ namespace DesktopDock
         internal IDockPlatform Platform => _platform;
 
         /// <summary>
+        /// Window pixels per point: 2 on a Retina Mac, 1 on Windows and in the Editor. Multiply UI sizes by it so buttons
+        /// and text keep their size in points. <c>DockCanvasScale</c> does this for a canvas.
+        /// </summary>
+        public float PixelsPerPoint => _initialized ? _platform.PixelsPerPoint : 1f;
+
+        /// <summary>
         /// Whether <see cref="DockTransparencyMode.ColorKey"/> works with this build's graphics setup (Direct3D11 without
         /// the flip-model swapchain). Always true in the Editor, where nothing is docked.
         /// </summary>

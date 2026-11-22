@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-22
+
+### Added
+- `DockCanvasScale` (uGUI) and `DesktopDockController.PixelsPerPoint`: keeps a canvas's UI the same size in points on a Retina Mac, where it was half size. The Basic Dock sample uses it.
+
+### Fixed
+- macOS: resizing was jerky on Retina screens. A thickness of an odd number of pixels made a frame of half a point, which Unity rendered a pixel larger, so each resize step waited for a size that never came and then fell back to `Screen.SetResolution`. Dock rects are now snapped to whole points (`MacCoordinates.SnapToPoints`), and each step lands in one frame. 3 more EditMode tests (119 in all).
+- macOS: buttons and text stretched while the dock was resized. Until Unity draws a frame at the new size, Core Animation stretched the last frame to fit the window. The native plugin now shows it unscaled, pinned to the edge that stays put while growing and to the dragged edge while shrinking, so the grip and buttons never squash or get cropped. It also stops re-setting window and layer properties that haven't changed, which redrew the window on every resize step.
+
 ## [0.4.0] - 2026-11-21
 
 ### Added
