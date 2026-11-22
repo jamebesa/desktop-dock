@@ -14,11 +14,25 @@ namespace DesktopDock
         ToggleShowHide = 1,
     }
 
+    /// <summary>What the show/hide shortcut does to a dock, and what it asks the other docks to do.</summary>
+    public enum DockShowHide
+    {
+        Show = 0,
+        /// <summary>Bring a dock tucked away by auto-hide back for a few seconds (show it if it's hidden).</summary>
+        Reveal = 1,
+        Hide = 2,
+    }
+
     /// <summary>
     /// A system-wide keyboard shortcut that works while another app has focus, for example Ctrl+Alt+D to show or hide the
     /// dock. Add one component per shortcut. Windows builds only: elsewhere <see cref="IsRegistered"/> stays false. If
     /// another app already uses the combination, Windows refuses it and a warning is logged; offer players a way to
     /// pick another one with <see cref="SetShortcut"/>.
+    /// <para>
+    /// With several Desktop Dock games running, only the first to start gets a given shortcut. With
+    /// <see cref="affectAllDocks"/> on (the default) its show/hide applies to every running dock, so one shortcut works
+    /// for all of them, and the others keep trying so one takes over if that game quits.
+    /// </para>
     /// </summary>
     [AddComponentMenu("Desktop Dock/Dock Hotkey")]
     public sealed class DockHotkey : MonoBehaviour
@@ -32,7 +46,14 @@ namespace DesktopDock
         [Tooltip("Raised on every press, after the action.")]
         public UnityEvent onPressed = new UnityEvent();
 
+        [Tooltip("Show/hide applies to every running Desktop Dock window, from any game, not just this one.")]
+        public bool affectAllDocks = true;
+
+        private const float RetrySeconds = 3f;
+
         private int _id;
+        private bool _warned;
+        private float _nextRetry;
 
         public string Shortcut => shortcut;
 
@@ -66,6 +87,12 @@ namespace DesktopDock
         {
 #if UNITY_STANDALONE_WIN && !UNITY_EDITOR
             Platform.Windows.WindowsHotkeys.DispatchPressed();
+            // Another game may hold the shortcut; take it over when that game quits.
+            if (_id == 0 && Time.unscaledTime >= _nextRetry)
+            {
+                _nextRetry = Time.unscaledTime + RetrySeconds;
+                Register();
+            }
 #endif
         }
 
@@ -78,8 +105,14 @@ namespace DesktopDock
             }
 #if UNITY_STANDALONE_WIN && !UNITY_EDITOR
             _id = Platform.Windows.WindowsHotkeys.Register(modifiers, vk, OnPressed);
-            if (_id == 0)
-                Debug.LogWarning("[DesktopDock] Windows refused the hotkey " + shortcut + "; another app probably uses it.");
+            if (_id == 0 && !_warned)
+            {
+                _warned = true;
+                Debug.LogWarning("[DesktopDock] Windows refused the hotkey " + shortcut + "; another app (perhaps another " +
+                                 "dock game, whose shortcut then works for this dock too) probably uses it. Trying again " +
+                                 "every few seconds.");
+            }
+            if (_id != 0) _warned = false;
             return _id != 0;
 #else
             // Hotkeys are system-wide, so the Editor never takes them; other platforms have no implementation yet.
@@ -97,17 +130,42 @@ namespace DesktopDock
 
         private void OnPressed()
         {
-            if (action == DockHotkeyAction.ToggleShowHide) ToggleShowHide();
+            if (action == DockHotkeyAction.ToggleShowHide)
+            {
+                var done = ToggleShowHide();
+                if (affectAllDocks && done.HasValue) DesktopDockController.Instance.SendToOtherDocks(done.Value);
+            }
             onPressed?.Invoke();
         }
 
-        internal static void ToggleShowHide()
+        /// <summary>Shows a hidden dock, reveals a tucked-away one, or else hides it. Returns what it did.</summary>
+        internal static DockShowHide? ToggleShowHide()
+        {
+            var dock = DesktopDockController.Instance;
+            if (dock == null) return null;
+            var what = dock.IsHidden ? DockShowHide.Show : dock.IsTuckedAway ? DockShowHide.Reveal : DockShowHide.Hide;
+            Apply(what);
+            return what;
+        }
+
+        /// <summary>Shows, reveals or hides this game's dock.</summary>
+        internal static void Apply(DockShowHide what)
         {
             var dock = DesktopDockController.Instance;
             if (dock == null) return;
-            if (dock.IsHidden) dock.SetHidden(false);
-            else if (dock.IsTuckedAway) dock.RevealAutoHide();
-            else dock.SetHidden(true);
+            switch (what)
+            {
+                case DockShowHide.Show:
+                    dock.SetHidden(false);
+                    break;
+                case DockShowHide.Reveal:
+                    if (dock.IsHidden) dock.SetHidden(false);
+                    else dock.RevealAutoHide();
+                    break;
+                default:
+                    dock.SetHidden(true);
+                    break;
+            }
         }
     }
 }

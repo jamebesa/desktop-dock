@@ -22,7 +22,7 @@ Turns a Unity standalone player into a borderless, transparent strip docked to a
 - **Remembers** changes the player makes (edge, size, monitor) in PlayerPrefs.
 - **Low idle cost**: a lower frame rate when unfocused, an optional render interval (scripts keep running, frames are drawn less often), and a very low frame rate while the dock can't be seen.
 
-**Platform:** Windows standalone (Mono or IL2CPP, x64/x86). **macOS standalone is experimental and has never been run**: the code was written without a Mac and needs a native plugin you build yourself (see [macOS](#macos-experimental-untested)). The Editor and other platforms only simulate docking: layout code still gets the configured edge, but no window is touched. The platform layer is behind `IDockPlatform`.
+**Platform:** Windows standalone (Mono or IL2CPP, x64/x86). **macOS standalone is experimental**: the package includes the compiled native plugin, and on a first run on a Mac the tests passed and the sample docked as a transparent strip that takes clicks, but most features haven't been checked there yet (see [macOS](#macos-experimental)). The Editor and other platforms only simulate docking: layout code still gets the configured edge, but no window is touched. The platform layer is behind `IDockPlatform`.
 
 Requires Unity 2021.3 or newer.
 
@@ -44,10 +44,10 @@ Not tested yet: IL2CPP builds (the code avoids anything IL2CPP lacks), more than
 
 Pick one:
 
-- **Git (recommended):** Package Manager → **+** → *Add package from git URL…*, then enter the URL below. The `#v0.3.0` pins a release; leave it off to follow the latest version.
+- **Git (recommended):** Package Manager → **+** → *Add package from git URL…*, then enter the URL below. The `#v0.4.0` pins a release; leave it off to follow the latest version.
 
   ```
-  https://github.com/jamebesa/desktop-dock.git#v0.3.0
+  https://github.com/jamebesa/desktop-dock.git#v0.4.0
   ```
 - **Local folder:** download or clone the package, then Package Manager → **+** → *Add package from disk…* → select its `package.json`.
 - **Embedded:** copy the package folder into your project's `Packages/` folder.
@@ -186,6 +186,16 @@ To have the camera follow the size automatically, use `DockCameraFitter` (see [L
 
 **Auto-hide** (`DockConfig.autoHide`, off by default) waits `autoHideDelay` seconds (default 1) after the cursor leaves, then slides the dock toward its outer edge until only `autoHidePeekPixels` (default 4) remain where it was. On the taskbar's edge it slides under the taskbar. While tucked away it lets every click through. Touching the sliver brings it back. It never slides away while a mouse button is held, while the settings panel, the resize grip or the move handle is in use, or while anything else holds it with `HoldAutoHide`. An auto-hiding dock never reserves screen space.
 
+### Tiling
+
+Several Desktop Dock games can run side by side. Docks on the same edge of the same monitor share it: each gets a share of the edge's length in proportion to its **Length** setting, so two docks at 100% get half each. Each keeps its own thickness. A dock alone on its edge uses Length and Alignment as before. This is on by default (`DockConfig.tileWithOtherDocks`, **Tile with other docks** in the settings panel). A dock with it off ignores the others and may overlap them.
+
+- **Finding each other.** Every dock writes a small heartbeat file once a second to `%LOCALAPPDATA%\DesktopDock\Peers` (on macOS, `~/.local/share/DesktopDock/Peers`). A dock that's closed leaves the row at once. One that crashes drops out after about 4 seconds. The other docks then spread out to fill the gap.
+- **Order.** The row's order is remembered per game (by company and product name), so the same games line up the same way next time. Newcomers join at the end. Dragging the **Move** handle along the edge swaps places with the dock under the cursor; `MoveTile(index)` does the same from code. `TileCount` and `TileIndex` say how many docks share the edge and where this one is.
+- **Reserved space.** Windows stacks reserved strips on one edge instead of putting them side by side, so tiled docks don't reserve screen space. A dock reserves again once it has the edge to itself.
+- **One hotkey for all.** Only the first game to start gets a given global shortcut. With `DockHotkey.affectAllDocks` on (the default), its show/hide applies to every running dock, so `Ctrl+Alt+D` shows or hides them all. The other games keep trying the shortcut every few seconds, and one takes over when the holder quits.
+- **Content.** A tile can be much shorter than the whole edge, so lay content out for any length (`DockCameraFitter` helps). The `Resized` event fires when a dock joins or leaves and the tile changes size.
+
 ### Frame pacing
 
 **Frame pacing** picks a frame rate and render interval from the situation:
@@ -224,7 +234,7 @@ class DragHandle : MonoBehaviour, IDockHitTestProvider
 |---|---|
 | `DockTrayIcon` | An icon in the Windows notification area (the menu bar on macOS), using the game's icon from Player Settings. Left-click shows or hides the dock. Right-click opens a menu: Show/Hide, Dock to (edge), Always on top, Auto-hide, Start with Windows, your items (`AddMenuItem(label, onClick, isChecked)`), Quit. Put it on the controller's GameObject. |
 | `DockResizeHandle` (uGUI) | A grip on the dock's inner edge. Dragging it, or turning the mouse wheel over it (`scrollStep` pixels per notch, default 20), changes the thickness within the dock's `ThicknessLimits`. `Resized` is raised as it changes, and the size is saved when the drag ends or the wheel stops. `DockResizeHandle.Create(canvasTransform)` makes one. |
-| `DockHotkey` | A system-wide shortcut, such as `Ctrl+Alt+D`, that works while another app has focus. The default action shows a hidden dock, brings back a tucked-away one, or else hides it; `onPressed` lets you add your own. Needs Ctrl, Alt, Shift or Win (except F13–F24). If another app already has the combination, Windows refuses it and a warning is logged; `SetShortcut("Ctrl+Shift+F9")` changes it at runtime. One component per shortcut. Windows only. |
+| `DockHotkey` | A system-wide shortcut, such as `Ctrl+Alt+D`, that works while another app has focus. The default action shows a hidden dock, brings back a tucked-away one, or else hides it; `onPressed` lets you add your own. Needs Ctrl, Alt, Shift or Win (except F13–F24). If another app already has the combination, Windows refuses it and a warning is logged; `SetShortcut("Ctrl+Shift+F9")` changes it at runtime. If another Desktop Dock game holds it, that game's press shows or hides this dock too (`affectAllDocks`), and this one takes the shortcut over when the other quits. One component per shortcut. Windows only. |
 | `DockMoveHandle` (uGUI) | Put it on any UI element, such as a "Move" button. Pressing and dragging it moves the dock to the nearest edge of the monitor under the cursor, live, and saves when released. `hysteresis` (48 px) stops it flickering between two edges near a corner. |
 | `DockSettingsPanel` (uGUI) | Edge, size, length, alignment, monitor, always on top, taskbar button, auto-hide, reserve screen space, step aside for fullscreen, soft transparency (PerPixelAlpha), start with Windows, and reset. Covers the dock while open; fills columns in a horizontal dock and rows in a vertical one, and scrolls if needed. `DockSettingsPanel.Create(canvas)`, then `Open()`, `Close()` or `Toggle()`. |
 
@@ -266,9 +276,9 @@ The uGUI pieces need a Screen Space Overlay canvas and an EventSystem. They're b
 - **Global hotkeys are Windows only.** On macOS, `DockHotkey` does nothing yet.
 - **Start with Windows points at the current executable.** If the game moves (for example a Steam library move), `IsEnabled` reports false until `SetEnabled(true)` is called again.
 
-## macOS (experimental, untested)
+## macOS (experimental)
 
-> **Nothing in this section has been run.** The macOS platform was written on Windows without a Mac. The C# side compiles and its coordinate math is unit-tested, but the native plugin has never been compiled, and no macOS build has ever docked. Expect to fix things on first contact. Please report what works.
+> **Only lightly tested.** The macOS platform was written on Windows without a Mac. The compiled plugin now ships in `Plugins/macOS/DesktopDockMac.bundle` (universal: arm64 and x86_64, signed ad hoc). On a first run (Apple M4, macOS 26.7, Unity 6000.3.10f1) all EditMode tests passed and the Basic Dock sample docked as a transparent, borderless, full-width strip along the bottom of the screen that takes clicks. Nothing else in this section has been checked yet. Please report what works.
 
 ### Build the native plugin
 

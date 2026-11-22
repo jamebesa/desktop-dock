@@ -71,6 +71,7 @@ namespace DesktopDock
 
         private IDockPlatform _platform;
         private DockConfig _config;
+        private DockPeers _peers;
         private bool _initialized;
         private bool _initAttempted;
         private bool _applying;
@@ -236,6 +237,10 @@ namespace DesktopDock
             {
                 _pixel = new Texture2D(1, 1, TextureFormat.RGBA32, false);
                 StartCoroutine(SamplePixelRoutine());
+                // Other docks on this computer, for tiling and the shared show/hide hotkey.
+                _peers = new DockPeers(DockPeers.DefaultFolder, Application.companyName + "/" + Application.productName,
+                    System.Diagnostics.Process.GetCurrentProcess().Id);
+                _peers.MessageReceived += OnPeerMessage;
             }
             RequestApply();
         }
@@ -259,6 +264,7 @@ namespace DesktopDock
             }
 
             UpdateFullscreenApp();
+            UpdateTiling();
             UpdateAutoHide();
             GuardPlacement();
             UpdateClickThrough();
@@ -411,12 +417,14 @@ namespace DesktopDock
         private void OnApplicationQuit()
         {
             if (_unsaved) SaveConfig();
+            _peers?.Dispose(); // leave the row now, so the others close the gap straight away
             _platform?.Shutdown();
         }
 
         private void OnDestroy()
         {
             if (Instance != this) return;
+            _peers?.Dispose();
             _platform?.Shutdown();
             _alphaPresenter?.Dispose();
             if (_pixel != null) Destroy(_pixel);
@@ -612,6 +620,15 @@ namespace DesktopDock
                     placeCfg = cfg.Clone();
                     placeCfg.reserveScreenSpace = false;
                 }
+                // Sharing the edge with other docks: take this dock's share of it. Tiled docks don't reserve space, since
+                // Windows stacks reserved strips on one edge instead of putting them side by side.
+                if (cfg.tileWithOtherDocks && _peers != null && _peers.Span.HasValue && _peers.Row == TileRow(monitor, cfg.edge))
+                {
+                    if (ReferenceEquals(placeCfg, cfg)) placeCfg = cfg.Clone();
+                    placeCfg.reserveScreenSpace = false;
+                    placeCfg.spanStart = _peers.Span.Value.x;
+                    placeCfg.spanLength = _peers.Span.Value.y;
+                }
                 RectInt rect = _platform.PlaceDock(placeCfg, monitor);
                 _placedArea = placeCfg.respectTaskbar ? monitor.workArea : monitor.bounds;
 
@@ -651,6 +668,51 @@ namespace DesktopDock
                 Publish(new DockState(cfg.edge, rect, monitorIndex, isSimulated: false));
             } while (_dirty);
             _applying = false;
+        }
+
+        // ================================================================ tiling
+
+        /// <summary>How many docks share this dock's edge, this one included: 1 when it has the edge to itself.</summary>
+        public int TileCount => _peers?.Count ?? 1;
+
+        /// <summary>This dock's place among the docks sharing its edge, counting from the start of the edge.</summary>
+        public int TileIndex => _peers?.Index ?? 0;
+
+        /// <summary>
+        /// Moves this dock to place <paramref name="index"/> among the docks sharing its edge (0 = left or top). The
+        /// order is remembered per game, so the same games line up the same way next time.
+        /// </summary>
+        public void MoveTile(int index) => _peers?.MoveTo(index);
+
+        /// <summary>Moves this dock to the tile under a desktop point on its edge. Returns whether it moved.</summary>
+        internal bool MoveTileTo(Vector2Int point)
+        {
+            if (_peers == null || _peers.Count < 2 || !_hasPlaced) return false;
+            int target = DockGeometry.TileInsertIndex(_peers.Spans, _peers.Index,
+                DockGeometry.FractionAlong(_config.edge, _placedArea, point));
+            if (target == _peers.Index) return false;
+            _peers.MoveTo(target);
+            return true;
+        }
+
+        /// <summary>Asks every other running dock to show, reveal or hide itself too (the shared hotkey).</summary>
+        internal void SendToOtherDocks(DockShowHide action) => _peers?.Send((int)action);
+
+        private void OnPeerMessage(int action) => DockHotkey.Apply((DockShowHide)action);
+
+        private void UpdateTiling()
+        {
+            if (_peers == null) return;
+            // The row: this edge of the monitor the dock is on. Joining or leaving one re-docks everyone in it.
+            string row = _config.tileWithOtherDocks && _hasPlaced ? TileRow(_placedMonitor, _config.edge) : null;
+            _peers.SetRow(row, _config.lengthPercent);
+            if (_peers.Tick(Time.unscaledTime)) RequestApply();
+        }
+
+        private static string TileRow(DockMonitor monitor, DockEdge edge)
+        {
+            var b = monitor.bounds;
+            return b.x + "," + b.y + " " + b.width + "x" + b.height + " " + edge;
         }
 
         private static int ResolveMonitor(IReadOnlyList<DockMonitor> monitors, int requested)

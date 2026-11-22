@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-21
+
+### Added
+- Tiling: docks from different games on the same edge of the same monitor sit side by side, each taking a share of the edge in proportion to its Length. On by default (`DockConfig.tileWithOtherDocks`, **Tile with other docks** in the settings panel). Docks find each other through heartbeat files in `%LOCALAPPDATA%\DesktopDock\Peers`. A closed dock leaves the row at once and a crashed one after about 4 seconds. The row's order is remembered per game. Dragging the Move handle along a shared edge swaps places. `TileCount`, `TileIndex` and `MoveTile(index)` cover the same from code. A tiled dock doesn't reserve screen space: Windows would stack the strips.
+- `DockHotkey.affectAllDocks` (on by default): the show/hide shortcut applies to every running dock, so one `Ctrl+Alt+D` works for all the dock games running at once. A game that can't get the shortcut because another holds it tries again every few seconds and takes over when that game quits. It warns once instead of on every attempt.
+- `DockShowHide`: what the show/hide shortcut did (show, reveal or hide).
+- 17 more EditMode tests (116 in all): tile shares and placement, drag-to-reorder stability, and peers finding each other, ordering, leaving, timing out and messaging.
+- macOS: the compiled native plugin ships in `Plugins/macOS/DesktopDockMac.bundle` (universal arm64 + x86_64, built with `Plugins~/macOS/build.sh`, signed ad hoc), so a Mac build no longer needs you to build it first. On a first run on a Mac (Apple M4, macOS 26.7) all 116 EditMode tests passed and the sample docked as a transparent, borderless, full-width strip that takes clicks. Other features are still unchecked on macOS.
+
 ## [0.3.0] - 2026-11-20
 
 ### Added

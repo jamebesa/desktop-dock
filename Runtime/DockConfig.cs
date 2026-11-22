@@ -45,6 +45,16 @@ namespace DesktopDock
         [Tooltip("Where a dock shorter than its edge sits along that edge.")]
         public DockAlignment alignment = DockAlignment.Center;
 
+        [Tooltip("Share the edge with other Desktop Dock windows (from any game on this computer) docked to the same edge " +
+                 "of the same monitor: they sit side by side, each taking a share of the edge in proportion to its Length. " +
+                 "Tiled docks don't reserve screen space. A dock alone on its edge uses Length and Alignment as usual.")]
+        public bool tileWithOtherDocks = true;
+
+        // While tiled: where along the edge this dock sits, as fractions of the edge's length. Set by the controller
+        // for each placement, never saved.
+        [NonSerialized] internal float spanStart = -1f;
+        [NonSerialized] internal float spanLength;
+
         [Header("Window")]
         [Tooltip("Keep the dock above other windows.")]
         public bool alwaysOnTop = true;

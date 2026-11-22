@@ -7,7 +7,8 @@ namespace DesktopDock.UI
 {
     /// <summary>
     /// Press on this UI element and drag to move the dock: it jumps to whichever edge of whichever monitor the cursor is
-    /// nearest, and the choice is saved when the button is released. Put it on a Graphic with Raycast Target on (a
+    /// nearest, and the choice is saved when the button is released. Along an edge it shares with other docks, it
+    /// swaps places with the dock under the cursor. Put it on a Graphic with Raycast Target on (a
     /// button labelled "Move", a grip icon...). Only moves the dock in builds where docking is active.
     /// </summary>
     [AddComponentMenu("Desktop Dock/Dock Move Handle")]
@@ -58,7 +59,12 @@ namespace DesktopDock.UI
 
             // -1 means "the primary monitor": keep it that way while the dock stays on the primary.
             int monitorSetting = monitors[index].isPrimary && cfg.monitorIndex < 0 ? -1 : index;
-            if (edge == cfg.edge && monitorSetting == cfg.monitorIndex) return;
+            if (edge == cfg.edge && monitorSetting == cfg.monitorIndex)
+            {
+                // Same edge: when it's shared with other docks, dragging along it swaps places with them.
+                dock.MoveTileTo(cursor);
+                return;
+            }
             dock.Modify(c =>
             {
                 c.edge = edge;

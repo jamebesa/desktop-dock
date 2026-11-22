@@ -31,7 +31,7 @@ namespace DesktopDock.UI
         private Slider _size, _length;
         private Text _sizeLabel, _lengthLabel, _monitorLabel;
         private Button _monitorButton;
-        private Toggle _onTop, _taskbar, _autoHide, _reserve, _fullscreen, _softAlpha, _startup;
+        private Toggle _onTop, _taskbar, _autoHide, _reserve, _tile, _fullscreen, _softAlpha, _startup;
         private bool _built;
         private bool _refreshing;
 
@@ -167,6 +167,7 @@ namespace DesktopDock.UI
             _taskbar = DockUI.Toggle(_content, "Show in taskbar", v => Set(c => c.showInTaskbar = v), out _);
             _autoHide = DockUI.Toggle(_content, "Auto-hide", v => Set(c => c.autoHide = v), out _);
             _reserve = DockUI.Toggle(_content, "Reserve screen space", v => Set(c => c.reserveScreenSpace = v), out _);
+            _tile = DockUI.Toggle(_content, "Tile with other docks", v => Set(c => c.tileWithOtherDocks = v), out _);
             _fullscreen = DockUI.Toggle(_content, "Step aside for fullscreen", v => Set(c =>
                 c.fullscreenBehavior = v ? DockFullscreenBehavior.DropBehind : DockFullscreenBehavior.Ignore), out _);
             _softAlpha = DockUI.Toggle(_content, "Soft transparency", v => Set(c =>
@@ -257,8 +258,13 @@ namespace DesktopDock.UI
                 _reserve.isOn = cfg.reserveScreenSpace;
                 _fullscreen.isOn = cfg.fullscreenBehavior != DockFullscreenBehavior.Ignore;
                 _autoHide.isOn = cfg.autoHide;
-                // An auto-hiding dock never reserves space, so the reserve toggle has no effect while it's on.
-                _reserve.interactable = !cfg.autoHide;
+                _tile.isOn = cfg.tileWithOtherDocks;
+                // An auto-hiding dock never reserves space, and neither does one sharing its edge, so the reserve
+                // toggle has no effect then. Sharing the edge also decides where the dock sits, so Align doesn't apply.
+                bool tiled = cfg.tileWithOtherDocks && dock.TileCount > 1;
+                _reserve.interactable = !cfg.autoHide && !tiled;
+                foreach (var pair in _alignButtons)
+                    if (pair.Value.TryGetComponent<Button>(out var alignButton)) alignButton.interactable = !tiled;
                 // Where ColorKey can't work (Direct3D12, Vulkan, flip model) soft transparency is the only option, so the
                 // toggle shows it on and can't be turned off.
                 _softAlpha.isOn = dock.ActiveTransparencyMode == DockTransparencyMode.PerPixelAlpha;

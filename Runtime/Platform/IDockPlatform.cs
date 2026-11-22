@@ -193,13 +193,24 @@ namespace DesktopDock.Platform
         {
             bool horizontal = c.Orientation == DockOrientation.Horizontal;
             int full = horizontal ? area.width : area.height;
-            int length = Mathf.Clamp(Mathf.RoundToInt(full * c.lengthPercent), 1, full);
-            int offset = c.alignment switch
+            int length, offset;
+            if (c.spanStart >= 0f)
             {
-                DockAlignment.Start => 0,
-                DockAlignment.End => full - length,
-                _ => (full - length) / 2,
-            };
+                // Tiled: a share of the edge. Neighbours round the same boundary, so they meet without a gap.
+                offset = Mathf.Clamp(Mathf.RoundToInt(full * c.spanStart), 0, full - 1);
+                int end = Mathf.Clamp(Mathf.RoundToInt(full * (c.spanStart + c.spanLength)), offset + 1, full);
+                length = end - offset;
+            }
+            else
+            {
+                length = Mathf.Clamp(Mathf.RoundToInt(full * c.lengthPercent), 1, full);
+                offset = c.alignment switch
+                {
+                    DockAlignment.Start => 0,
+                    DockAlignment.End => full - length,
+                    _ => (full - length) / 2,
+                };
+            }
 
             switch (c.edge)
             {
@@ -209,6 +220,44 @@ namespace DesktopDock.Platform
                 default: return new RectInt(area.x + offset, area.yMax - thickness, length, thickness);
             }
         }
+
+        /// <summary>
+        /// Where each of several tiled docks sits along a shared edge, in order: (start, length) as fractions of the
+        /// edge, each share in proportion to its weight (its Length setting). The shares fill the edge exactly.
+        /// </summary>
+        public static Vector2[] TileSpans(IReadOnlyList<float> weights)
+        {
+            var spans = new Vector2[weights.Count];
+            float total = 0f;
+            foreach (float w in weights) total += Mathf.Max(0.01f, w);
+            float start = 0f;
+            for (int i = 0; i < weights.Count; i++)
+            {
+                float length = Mathf.Max(0.01f, weights[i]) / total;
+                spans[i] = new Vector2(start, i == weights.Count - 1 ? 1f - start : length);
+                start += length;
+            }
+            return spans;
+        }
+
+        /// <summary>
+        /// Where the tile at <paramref name="self"/> should go while being dragged to <paramref name="fraction"/> of the
+        /// way along the edge: the number of other tiles whose middle is before that point. Stable: once moved there,
+        /// the same point gives the same answer, whatever the tiles' sizes, so a drag never flickers between two places.
+        /// </summary>
+        public static int TileInsertIndex(IReadOnlyList<Vector2> spans, int self, float fraction)
+        {
+            int index = 0;
+            for (int i = 0; i < spans.Count; i++)
+                if (i != self && spans[i].x + spans[i].y / 2f < fraction) index++;
+            return index;
+        }
+
+        /// <summary>How far along the edge of <paramref name="area"/> a desktop point is, from 0 (start) to 1 (end).</summary>
+        public static float FractionAlong(DockEdge edge, RectInt area, Vector2Int point) =>
+            edge.Orientation() == DockOrientation.Horizontal
+                ? Mathf.Clamp01((point.x - area.x) / (float)Mathf.Max(1, area.width))
+                : Mathf.Clamp01((point.y - area.y) / (float)Mathf.Max(1, area.height));
 
         /// <summary>
         /// Thickness that puts the dock's inner edge at <paramref name="cursor"/>, keeping the outer edge of
