@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-11-23
+
+### Fixed
+- macOS: `DesktopDockMac.bundle` had no platform settings in its `.meta`, so Unity fell back to its defaults, and a package installed from git can't change them in the Inspector. It's now set to **Standalone → macOS** (any CPU) only, and excluded from the Editor and other platforms.
+
 ## [0.4.2] - 2026-11-23
 
 ### Fixed

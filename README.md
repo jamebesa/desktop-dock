@@ -45,10 +45,10 @@ Not tested yet: IL2CPP x86 builds, the tray icon under IL2CPP, more than one mon
 
 Pick one:
 
-- **Git (recommended):** Package Manager → **+** → *Add package from git URL…*, then enter the URL below. The `#v0.4.2` pins a release; leave it off to follow the latest version.
+- **Git (recommended):** Package Manager → **+** → *Add package from git URL…*, then enter the URL below. The `#v0.4.3` pins a release; leave it off to follow the latest version.
 
   ```
-  https://github.com/jamebesa/desktop-dock.git#v0.4.2
+  https://github.com/jamebesa/desktop-dock.git#v0.4.3
   ```
 - **Local folder:** download or clone the package, then Package Manager → **+** → *Add package from disk…* → select its `package.json`.
 - **Embedded:** copy the package folder into your project's `Packages/` folder.
@@ -289,10 +289,7 @@ The package ships the compiled plugin, so a Mac build works as is. You only need
 sh DesktopDock/Plugins~/macOS/build.sh
 ```
 
-It builds a universal (Apple silicon + Intel) `DesktopDock/Plugins/macOS/DesktopDockMac.bundle` for macOS 10.13+, signs it ad hoc, and replaces the shipped one. Unity imports it from there. Then:
-
-1. Select the bundle in Unity and check that its import settings include **Standalone → macOS** (any CPU).
-2. Commit the bundle and its `.meta` if you share the package.
+It builds a universal (Apple silicon + Intel) `DesktopDock/Plugins/macOS/DesktopDockMac.bundle` for macOS 10.13+, signs it ad hoc, and replaces the shipped one. Unity imports it from there. The bundle's `.meta` already sets its platforms: **Standalone → macOS** (any CPU) only, not the Editor or other platforms, since the native calls only run in a macOS player. Keep that `.meta` when you rebuild, and commit the bundle with it if you share the package.
 
 If the bundle is missing, a macOS build logs a warning and doesn't dock. Everything else keeps working.
 
