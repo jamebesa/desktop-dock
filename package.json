@@ -1,6 +1,6 @@
 {
   "name": "com.desktopdock.unity",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "displayName": "Desktop Dock",
   "description": "Turns a Unity standalone player into a borderless, transparent strip docked to an edge of the desktop (bottom, top, left or right), in the style of idle 'desktop companion' games. Click-through for empty areas, always on top, auto-hide, stepping aside for fullscreen apps, optional screen-space reservation (Windows app bar), resizing by drag, scroll wheel or API with a Resized event, drag to another edge, tiling with other docked games side by side, a tray icon, a global hotkey, a ready-made settings panel, start with Windows, low idle cost, and opt-in per-pixel alpha transparency. Windows; macOS is experimental.",
   "unity": "2021.3",

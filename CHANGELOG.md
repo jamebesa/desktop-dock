@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-23
+
+### Fixed
+- README: the macOS section said the package ships the plugin's source, not a binary, right after saying the compiled plugin ships. It now says the compiled `DesktopDockMac.bundle` ships and only needs rebuilding after changing its source. The plugin source's own README no longer says it has never been compiled or run.
+
+### Changed
+- README: IL2CPP (x64) is now checked: the Basic Dock sample docks with its transparent background and the global hotkey works, with no errors in the player log. The test count is 119.
+
 ## [0.4.1] - 2026-11-22
 
 ### Added

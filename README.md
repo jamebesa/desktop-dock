@@ -34,9 +34,10 @@ Tested with:
 - Auto-hide (tucking away, coming back from the sliver, sliding under the taskbar), the global hotkey, dragging to another edge and back, the frame pacing, and the Basic Dock sample's idle game (buying, offline earnings) were checked in a Unity 6000.3 build.
 - PerPixelAlpha (Unity 6000.3, built-in pipeline): Direct3D11 without flip model and Direct3D12, Gamma and Linear color space. Blending was measured on screen against white and black backgrounds, along with click-through, switching modes at runtime, edge changes, hiding, and pinning.
 - Resizing with the grip (drag and wheel) and with `ResizeBy` from game code, the `Resized` event while dragging, and clamping to the thickness limits were checked in a Unity 6000.3 build.
-- 99 EditMode tests (see [Tests](#tests)).
+- IL2CPP (x64, Unity 6000.3): the Basic Dock sample docks with its transparent background, and the global hotkey hides and shows it, with no errors in the player log.
+- 119 EditMode tests (see [Tests](#tests)).
 
-Not tested yet: IL2CPP builds (the code avoids anything IL2CPP lacks), more than one monitor, display scaling other than 100%, PerPixelAlpha with Vulkan, with Direct3D11 plus the flip-model swapchain, and with URP.
+Not tested yet: IL2CPP x86 builds, the tray icon under IL2CPP, more than one monitor, display scaling other than 100%, PerPixelAlpha with Vulkan, with Direct3D11 plus the flip-model swapchain, and with URP.
 
 **Unity 6 note:** new Unity 6 projects default to Direct3D12, fullscreen and the flip-model swapchain. Fullscreen breaks the dock, and Direct3D12 and the flip model break ColorKey transparency. **Tools → Desktop Dock → Apply Recommended Player Settings** fixes all three. With PerPixelAlpha you can keep Direct3D12: use **Apply Recommended Player Settings (PerPixelAlpha, keep graphics API)** instead. Either way, a build that can't do ColorKey falls back to PerPixelAlpha by itself.
 
@@ -44,10 +45,10 @@ Not tested yet: IL2CPP builds (the code avoids anything IL2CPP lacks), more than
 
 Pick one:
 
-- **Git (recommended):** Package Manager → **+** → *Add package from git URL…*, then enter the URL below. The `#v0.4.1` pins a release; leave it off to follow the latest version.
+- **Git (recommended):** Package Manager → **+** → *Add package from git URL…*, then enter the URL below. The `#v0.4.2` pins a release; leave it off to follow the latest version.
 
   ```
-  https://github.com/jamebesa/desktop-dock.git#v0.4.1
+  https://github.com/jamebesa/desktop-dock.git#v0.4.2
   ```
 - **Local folder:** download or clone the package, then Package Manager → **+** → *Add package from disk…* → select its `package.json`.
 - **Embedded:** copy the package folder into your project's `Packages/` folder.
@@ -280,20 +281,20 @@ The uGUI pieces need a Screen Space Overlay canvas and an EventSystem. They're b
 
 > **Only lightly tested.** The macOS platform was written on Windows without a Mac. The compiled plugin now ships in `Plugins/macOS/DesktopDockMac.bundle` (universal: arm64 and x86_64, signed ad hoc). On a first run (Apple M4, macOS 26.7, Unity 6000.3.10f1) all EditMode tests passed and the Basic Dock sample docked as a transparent, borderless, full-width strip along the bottom of the screen that takes clicks. Nothing else in this section has been checked yet. Please report what works.
 
-### Build the native plugin
+### Rebuild the native plugin
 
-The package ships the plugin's source, not a binary. On a Mac with the Xcode command line tools (`xcode-select --install`), run this from the folder that contains `DesktopDock`:
+The package ships the compiled plugin, so a Mac build works as is. You only need to rebuild it after changing its source, `Plugins~/macOS/DesktopDockMac.m`. On a Mac with the Xcode command line tools (`xcode-select --install`), run this from the folder that contains `DesktopDock`:
 
 ```sh
 sh DesktopDock/Plugins~/macOS/build.sh
 ```
 
-It builds a universal (Apple silicon + Intel) `DesktopDock/Plugins/macOS/DesktopDockMac.bundle` for macOS 10.13+, and signs it ad hoc. Unity imports it from there. Then:
+It builds a universal (Apple silicon + Intel) `DesktopDock/Plugins/macOS/DesktopDockMac.bundle` for macOS 10.13+, signs it ad hoc, and replaces the shipped one. Unity imports it from there. Then:
 
 1. Select the bundle in Unity and check that its import settings include **Standalone → macOS** (any CPU).
 2. Commit the bundle and its `.meta` if you share the package.
 
-Without the bundle a macOS build logs a warning and doesn't dock. Everything else keeps working.
+If the bundle is missing, a macOS build logs a warning and doesn't dock. Everything else keeps working.
 
 ### Player Settings (macOS)
 
